@@ -31,10 +31,10 @@ import {
   PlusOutlined,
   ReloadOutlined,
   SyncOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 
 import {
-  DEFAULT_CREDIT_TIERS,
   batchDeleteAccounts,
   copyCard,
   downloadBlob,
@@ -45,6 +45,7 @@ import {
   listCreditTiers,
   refreshAccountStatus,
   updateAccount,
+  MAIL_CREDITS_PER_TIER,
 } from '../../api/client';
 import type {
   AccountListQuery,
@@ -68,6 +69,7 @@ import MailboxModal from '../../components/MailboxModal';
 import {
   BAN_STATUS_META,
   BAN_STATUS_OPTIONS,
+  CREDIT_STATUS_META,
   REDEEM_STATUS_META,
   REDEEM_STATUS_OPTIONS,
   formatBytes,
@@ -80,6 +82,8 @@ const { TextArea } = Input;
 
 const PAGE_SIZE_DEFAULT = 20;
 const IMPORT_MAX_FILE_SIZE = 20 * 1024 * 1024;
+/** 待定档（额度还没从邮件里定出来）在筛选器里的哨兵值 */
+const PENDING_CREDITS = 0;
 
 const EMPTY_SUMMARY: AccountSummary = {
   total: 0,
@@ -88,6 +92,7 @@ const EMPTY_SUMMARY: AccountSummary = {
   banned: 0,
   invalid: 0,
   unknown: 0,
+  pending: 0,
   byCredits: [],
 };
 
@@ -127,10 +132,11 @@ const INITIAL_FILTERS: AccountFilters = {
  * ==================================================================== */
 
 interface ImportFormValues {
-  credits: number;
   prefix: string;
   remark?: string;
   skipDuplicate: boolean;
+  /** 导入完成后立刻按邮箱取件自动定档 */
+  autoTier: boolean;
   keyGroups: number;
   keyLength: number;
 }
@@ -143,9 +149,16 @@ interface ImportAccountsModalProps {
   open: boolean;
   tiers: CreditTier[];
   onClose: () => void;
-  onImported: () => void;
+  /** 导入成功回调；autoTier = 用户勾选了「导入后自动取件定档」 */
+  onImported: (result: ImportResponse, autoTier: boolean) => void;
 }
 
+/**
+ * 导入弹窗。
+ *
+ * 额度不在这里填写：导入的账号先落「待定档」，随后由邮箱取件命中额度关键字自动定档
+ * （档位 = 命中 credits ÷ 25）。
+ */
 function ImportAccountsModal({ open, tiers, onClose, onImported }: ImportAccountsModalProps) {
   const { message } = AntApp.useApp();
   const [form] = Form.useForm<ImportFormValues>();
@@ -164,9 +177,12 @@ function ImportAccountsModal({ open, tiers, onClose, onImported }: ImportAccount
     setTab('paste');
   }, [open]);
 
-  const tierButtons = useMemo(() => {
-    const values = tiers.length > 0 ? tiers.map((item) => item.credits) : DEFAULT_CREDIT_TIERS;
-    return values.slice(0, 10);
+  const tierHint = useMemo(() => {
+    const values = tiers
+      .filter((item) => item.credits > 0)
+      .map((item) => item.credits)
+      .slice(0, 8);
+    return values.length > 0 ? values.join(' / ') : '（取件命中后自动生成）';
   }, [tiers]);
 
   const handleFiles = useCallback(
@@ -210,7 +226,6 @@ function ImportAccountsModal({ open, tiers, onClose, onImported }: ImportAccount
       const response = await importAccounts({
         content: trimmed || undefined,
         files: files.length > 0 ? files.map(({ name, content: text }) => ({ name, content: text })) : undefined,
-        credits: values.credits,
         prefix: values.prefix?.trim() || 'CARD',
         source: tab,
         remark: values.remark?.trim() || undefined,
@@ -220,7 +235,7 @@ function ImportAccountsModal({ open, tiers, onClose, onImported }: ImportAccount
       });
       setResult(response);
       void message.success(`导入完成：成功 ${response.imported} 个，跳过 ${response.skipped} 个`);
-      onImported();
+      onImported(response, values.autoTier !== false);
     } catch (error) {
       void message.error(errorMessage(error));
     } finally {
@@ -350,17 +365,14 @@ function ImportAccountsModal({ open, tiers, onClose, onImported }: ImportAccount
         layout="vertical"
         style={{ marginTop: 8 }}
         initialValues={{
-          credits: 100,
           prefix: 'CARD',
           skipDuplicate: true,
+          autoTier: true,
           keyGroups: 3,
           keyLength: 5,
         }}
       >
         <div className="import-grid">
-          <Form.Item name="credits" label="额度" rules={[{ required: true, message: '请输入额度' }]}>
-            <InputNumber style={{ width: '100%' }} min={1} precision={0} />
-          </Form.Item>
           <Form.Item name="prefix" label="卡密前缀">
             <Input placeholder="CARD" />
           </Form.Item>
@@ -376,22 +388,21 @@ function ImportAccountsModal({ open, tiers, onClose, onImported }: ImportAccount
           <Form.Item name="skipDuplicate" label="跳过重复账号" valuePropName="checked">
             <Switch />
           </Form.Item>
+          <Form.Item
+            name="autoTier"
+            label="导入后自动取件定档"
+            valuePropName="checked"
+            tooltip="导入的账号先记为「待定档」，随后自动逐个取件，命中额度关键字后自动定档"
+          >
+            <Switch />
+          </Form.Item>
         </div>
 
-        <div style={{ marginTop: -6, marginBottom: 6, fontSize: 11.5, color: '#98A5A0' }}>
-          快速选择额度：
-          <Space size={6} wrap style={{ marginLeft: 6 }}>
-            {tierButtons.map((value) => (
-              <Button
-                key={value}
-                size="small"
-                onClick={() => form.setFieldValue('credits', value)}
-                style={{ height: 24, fontSize: 11.5 }}
-              >
-                {value}
-              </Button>
-            ))}
-          </Space>
+        <div className="import-note">
+          额度不用填：导入后按邮箱取件命中关键字自动定档（档位 = 命中 credits ÷ 25，向下取整）。
+          没命中额度的账号会停在「待定档」，不进兑换池。
+          <br />
+          当前已有档位：{tierHint}
         </div>
       </Form>
 
@@ -408,7 +419,7 @@ function ImportAccountsModal({ open, tiers, onClose, onImported }: ImportAccount
               失败 <b>{result.failed}</b> 个
             </span>
             <span>
-              额度 <b>{formatCredits(result.credits)}</b>
+              待定档 <b>{formatNumber(result.pending)}</b> 个
             </span>
             <span>
               批次 <b className="mono">{result.batchId}</b>
@@ -464,6 +475,66 @@ function ImportAccountsModal({ open, tiers, onClose, onImported }: ImportAccount
 }
 
 /* ==================================================================== *
+ * 定档任务（邮箱取件命中额度关键字 → 自动写回档位）
+ * ==================================================================== */
+
+interface TierJobProgress {
+  processed: number;
+  hit: number;
+  pending: number;
+  failed: number;
+  rounds: number;
+}
+
+/**
+ * 循环调用 refresh-status（targets: credits）直到处理完。
+ *
+ * - 「按筛选条件」时用 cursor 递增推进，保证取件成功但没命中额度的账号
+ *   不会被同一轮反复重复取件；
+ * - 「选中账号」时一次请求即可。
+ */
+async function runTierAssignment(options: {
+  filter?: RefreshFilterPayload;
+  ids?: number[];
+  limit?: number;
+  onProgress?: (progress: TierJobProgress) => void;
+  shouldStop?: () => boolean;
+}): Promise<TierJobProgress> {
+  const limit = Math.min(500, Math.max(1, options.limit || 50));
+  const progress: TierJobProgress = { processed: 0, hit: 0, pending: 0, failed: 0, rounds: 0 };
+  const maxRounds = 200;
+
+  if (options.ids?.length) {
+    const response = await refreshAccountStatus({ ids: options.ids, targets: ['credits'] });
+    progress.processed += response.processed ?? 0;
+    progress.hit += response.credits?.hit ?? 0;
+    progress.pending += response.credits?.pending ?? 0;
+    progress.failed += response.credits?.failed ?? 0;
+    progress.rounds = 1;
+    options.onProgress?.({ ...progress });
+    return progress;
+  }
+
+  let cursor: number | null = null;
+  while (progress.rounds < maxRounds) {
+    if (options.shouldStop?.()) break;
+    const payload: RefreshStatusRequest = { filter: options.filter, limit, targets: ['credits'] };
+    if (cursor !== null) payload.cursor = cursor;
+    const response = await refreshAccountStatus(payload);
+    progress.rounds++;
+    progress.processed += response.processed ?? 0;
+    progress.hit += response.credits?.hit ?? 0;
+    progress.pending += response.credits?.pending ?? 0;
+    progress.failed += response.credits?.failed ?? 0;
+    options.onProgress?.({ ...progress });
+    cursor = response.nextCursor ?? null;
+    if (!response.processed || cursor === null) break;
+  }
+
+  return progress;
+}
+
+/* ==================================================================== *
  * 刷新状态弹窗
  * ==================================================================== */
 
@@ -488,15 +559,18 @@ function RefreshStatusModal({
   const hasSelection = selectedIds.length > 0;
 
   const [refreshBan, setRefreshBan] = useState(true);
+  const [refreshCredits, setRefreshCredits] = useState(false);
   const [refreshRedeem, setRefreshRedeem] = useState(true);
   const [scope, setScope] = useState<'selected' | 'filter'>('filter');
   const [limit, setLimit] = useState(100);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<RefreshStatusResponse | null>(null);
+  const [tierProgress, setTierProgress] = useState<TierJobProgress | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setResult(null);
+    setTierProgress(null);
     setRunning(false);
     setScope(hasSelection ? 'selected' : 'filter');
   }, [open, hasSelection]);
@@ -506,26 +580,41 @@ function RefreshStatusModal({
     if (refreshBan) targets.push('ban');
     if (refreshRedeem) targets.push('redeem');
 
-    if (targets.length === 0) {
+    if (targets.length === 0 && !refreshCredits) {
       void message.warning('请至少选择一个刷新目标');
       return;
     }
 
-    const payload: RefreshStatusRequest =
-      scope === 'selected' && hasSelection
-        ? { ids: selectedIds, targets }
-        : { filter, limit, targets };
-
     setRunning(true);
     try {
-      const response = await refreshAccountStatus(payload);
-      setResult(response);
-      void message.success(`刷新完成：处理 ${response.processed} / ${response.requested}`);
+      if (refreshCredits) {
+        const progress = await runTierAssignment({
+          filter,
+          ids: scope === 'selected' && hasSelection ? selectedIds : undefined,
+          limit: scope === 'selected' && hasSelection ? undefined : limit,
+          onProgress: setTierProgress,
+        });
+        void message.success(
+          `定档完成：新增档位 ${progress.hit} 个 · 待定档 ${progress.pending} 个 · 失败 ${progress.failed} 个`,
+        );
+      }
+
+      if (targets.length > 0) {
+        const payload: RefreshStatusRequest =
+          scope === 'selected' && hasSelection
+            ? { ids: selectedIds, targets }
+            : { filter, limit, targets };
+        const response = await refreshAccountStatus(payload);
+        setResult(response);
+        void message.success(`刷新完成：处理 ${response.processed} / ${response.requested}`);
+      }
+
       onDone();
     } catch (error) {
       void message.error(errorMessage(error));
     } finally {
       setRunning(false);
+      setTierProgress(null);
     }
   };
 
@@ -533,8 +622,8 @@ function RefreshStatusModal({
     <Modal
       open={open}
       width={560}
-      title="刷新状态"
-      okText="开始刷新"
+      title="刷新状态 / 取件定档"
+      okText="开始执行"
       cancelText="关闭"
       confirmLoading={running}
       onOk={() => {
@@ -545,7 +634,7 @@ function RefreshStatusModal({
     >
       <Space direction="vertical" size={14} style={{ width: '100%' }}>
         <div>
-          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 8 }}>刷新目标</div>
+          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 8 }}>执行目标</div>
           <Space direction="vertical" size={4}>
             <Checkbox checked={refreshBan} onChange={(event) => setRefreshBan(event.target.checked)}>
               刷新封禁状态
@@ -555,6 +644,12 @@ function RefreshStatusModal({
               onChange={(event) => setRefreshRedeem(event.target.checked)}
             >
               刷新兑换状态
+            </Checkbox>
+            <Checkbox
+              checked={refreshCredits}
+              onChange={(event) => setRefreshCredits(event.target.checked)}
+            >
+              取件定档（命中额度关键字 → 自动写回档位）
             </Checkbox>
           </Space>
         </div>
@@ -570,14 +665,14 @@ function RefreshStatusModal({
                 <Radio value="selected">选中的 {selectedIds.length} 条</Radio>
               ) : null}
               <Radio value="filter">
-                按当前筛选条件（最多 {limit} 条，共 {formatNumber(total)} 条）
+                按当前筛选条件（每轮最多 {limit} 条，共 {formatNumber(total)} 条）
               </Radio>
             </Space>
           </Radio.Group>
 
           {scope === 'filter' ? (
             <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 12.5, color: '#6B7A74' }}>处理条数上限</span>
+              <span style={{ fontSize: 12.5, color: '#6B7A74' }}>单轮处理条数</span>
               <InputNumber
                 min={1}
                 max={500}
@@ -593,7 +688,18 @@ function RefreshStatusModal({
         {running ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#6B7A74' }}>
             <Spin size="small" />
-            正在刷新…
+            {tierProgress
+              ? `取件定档中… 已处理 ${tierProgress.processed}，命中 ${tierProgress.hit}，待定档 ${tierProgress.pending}`
+              : '正在执行…'}
+          </div>
+        ) : null}
+
+        {tierProgress && !running ? (
+          <div className="admin-card" style={{ background: '#FAFBF9' }}>
+            <div style={{ fontSize: 12.5, color: '#2C3A35' }}>
+              定档：本次处理 {tierProgress.processed} 个 · 新增档位 {tierProgress.hit} 个 · 仍待定档{' '}
+              {tierProgress.pending} 个 · 失败 {tierProgress.failed} 个
+            </div>
           </div>
         ) : null}
 
@@ -650,21 +756,22 @@ export default function AccountsPage() {
   const [mailboxAccount, setMailboxAccount] = useState<AccountRow | null>(null);
   const [remarkSaving, setRemarkSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [remarkForm] = Form.useForm<{ remark?: string; credits?: number }>();
+  const [remarkForm] = Form.useForm<{ remark?: string }>();
+  /** 导入后自动定档任务的进度（null = 没有在跑） */
+  const [tierJob, setTierJob] = useState<TierJobProgress | null>(null);
+
+  const loadTiers = useCallback(async () => {
+    try {
+      const items = await listCreditTiers();
+      setTiers(items);
+    } catch {
+      /* 档位接口不可用时回落到 summary.byCredits */
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    listCreditTiers()
-      .then((items) => {
-        if (!cancelled) setTiers(items);
-      })
-      .catch(() => {
-        /* 档位接口不可用时回落到 summary.byCredits / 契约默认档位 */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    void loadTiers();
+  }, [loadTiers]);
 
   const query = useMemo<AccountListQuery>(
     () => ({
@@ -701,20 +808,18 @@ export default function AccountsPage() {
   }, [load]);
 
   const creditSelectOptions = useMemo(() => {
-    if (tiers.length > 0) {
-      return tiers.map((item) => ({
-        value: item.credits,
-        label: item.label || formatCredits(item.credits),
-      }));
+    const options =
+      tiers.length > 0
+        ? tiers.map((item) => ({ value: item.credits, label: item.label || formatCredits(item.credits) }))
+        : summary.byCredits.map((item) => ({ value: item.credits, label: formatCredits(item.credits) }));
+    const known = new Set(options.map((item) => item.value));
+    if ((summary.pending > 0 || known.has(PENDING_CREDITS)) && !known.has(PENDING_CREDITS)) {
+      options.unshift({ value: PENDING_CREDITS, label: '待定档' });
     }
-    if (summary.byCredits.length > 0) {
-      return summary.byCredits.map((item) => ({
-        value: item.credits,
-        label: formatCredits(item.credits),
-      }));
-    }
-    return DEFAULT_CREDIT_TIERS.map((value) => ({ value, label: formatCredits(value) }));
-  }, [summary.byCredits, tiers]);
+    return options.map((item) =>
+      item.value === PENDING_CREDITS ? { ...item, label: '待定档' } : item,
+    );
+  }, [summary.byCredits, summary.pending, tiers]);
 
   const sortValue = filters.sortField && filters.sortOrder ? `${filters.sortField}-${filters.sortOrder}` : undefined;
 
@@ -800,7 +905,7 @@ export default function AccountsPage() {
 
   const submitRemark = async () => {
     if (!remarkTarget) return;
-    let values: { remark?: string; credits?: number };
+    let values: { remark?: string };
     try {
       values = await remarkForm.validateFields();
     } catch {
@@ -809,10 +914,8 @@ export default function AccountsPage() {
 
     setRemarkSaving(true);
     try {
-      await updateAccount(remarkTarget.id, {
-        remark: values.remark ?? '',
-        credits: values.credits,
-      });
+      // 额度不在这里改：档位由邮箱取件命中关键字自动得出
+      await updateAccount(remarkTarget.id, { remark: values.remark ?? '' });
       void message.success('已保存');
       setRemarkTarget(null);
       await load();
@@ -822,6 +925,32 @@ export default function AccountsPage() {
       setRemarkSaving(false);
     }
   };
+
+  /** 取件定档：默认只处理「待定档」账号（credits = 0） */
+  const handleTierAssignment = useCallback(
+    async (filter?: RefreshFilterPayload) => {
+      if (tierJob) return;
+      const payload: RefreshFilterPayload = filter ?? { credits: [PENDING_CREDITS] };
+      setTierJob({ processed: 0, hit: 0, pending: 0, failed: 0, rounds: 0 });
+      try {
+        const progress = await runTierAssignment({
+          filter: payload,
+          limit: 50,
+          onProgress: setTierJob,
+        });
+        void message.success(
+          `定档完成：新增档位 ${progress.hit} 个 · 仍待定档 ${progress.pending} 个 · 失败 ${progress.failed} 个`,
+        );
+      } catch (error) {
+        void message.error(errorMessage(error));
+      } finally {
+        setTierJob(null);
+        await load();
+        void loadTiers();
+      }
+    },
+    [load, loadTiers, message, tierJob],
+  );
 
   const sortOrderFor = (field: AccountSortField): SortOrder | null =>
     filters.sortField === field ? filters.sortOrder ?? null : null;
@@ -860,10 +989,26 @@ export default function AccountsPage() {
         title: '额度',
         dataIndex: 'credits',
         key: 'credits',
-        width: 120,
+        width: 130,
         sorter: true,
         sortOrder: sortOrderFor('credits'),
-        render: (value: number) => <Tag color="green">{formatCredits(value)}</Tag>,
+        render: (value: number, record) => {
+          const pending = record.creditStatus === 'pending' || !(value > 0);
+          if (pending) {
+            return (
+              <Tooltip title="额度来自邮箱取件命中的额度关键字；还没命中时为待定档，不进兑换池">
+                <Tag color={CREDIT_STATUS_META.pending.color}>
+                  {CREDIT_STATUS_META.pending.label}
+                </Tag>
+              </Tooltip>
+            );
+          }
+          return (
+            <Tooltip title={`邮件已命中 ${value * MAIL_CREDITS_PER_TIER} credits`}>
+              <Tag color="green">{formatCredits(value)}</Tag>
+            </Tooltip>
+          );
+        },
       },
       {
         title: '卡密',
@@ -984,10 +1129,7 @@ export default function AccountsPage() {
               menu={{
                 onClick: ({ key }) => {
                   if (key === 'remark') {
-                    remarkForm.setFieldsValue({
-                      remark: record.remark ?? '',
-                      credits: record.credits,
-                    });
+                    remarkForm.setFieldsValue({ remark: record.remark ?? '' });
                     setRemarkTarget(record);
                   }
                   if (key === 'email') void handleCopyEmail(record);
@@ -1055,6 +1197,7 @@ export default function AccountsPage() {
 
   const summaryCells = [
     { key: 'total', label: '账号总数', value: summary.total },
+    { key: 'pending', label: '待定档', value: summary.pending },
     { key: 'unredeemed', label: '未兑换', value: summary.unredeemed },
     { key: 'redeemed', label: '已兑换', value: summary.redeemed },
     { key: 'banned', label: '已封禁', value: summary.banned },
@@ -1149,6 +1292,18 @@ export default function AccountsPage() {
           >
             导入账号
           </Button>
+          <Tooltip title="对「待定档」账号逐个取件，命中额度关键字后自动写回档位（档位 = 命中 credits ÷ 25）">
+            <Button
+              icon={<ThunderboltOutlined />}
+              loading={tierJob !== null}
+              onClick={() => {
+                void handleTierAssignment();
+              }}
+            >
+              取件定档
+              {summary.pending > 0 ? ` (${formatNumber(summary.pending)})` : ''}
+            </Button>
+          </Tooltip>
           <Button
             icon={<SyncOutlined />}
             onClick={() => {
@@ -1239,8 +1394,12 @@ export default function AccountsPage() {
         open={importOpen}
         tiers={tiers}
         onClose={() => setImportOpen(false)}
-        onImported={() => {
+        onImported={(result, autoTier) => {
           void load();
+          // 导入的账号都是「待定档」：直接接着跑批量取件定档
+          if (autoTier && result.imported > 0) {
+            void handleTierAssignment({ batchId: result.batchId, credits: [PENDING_CREDITS] });
+          }
         }}
       />
 
@@ -1280,9 +1439,10 @@ export default function AccountsPage() {
           <Form.Item name="remark" label="备注">
             <TextArea rows={3} placeholder="内部备注，可留空" />
           </Form.Item>
-          <Form.Item name="credits" label="额度" rules={[{ required: true, message: '请输入额度' }]}>
-            <InputNumber style={{ width: '100%' }} min={1} precision={0} />
-          </Form.Item>
+          <div style={{ fontSize: 11.5, color: '#98A5A0' }}>
+            当前额度 <b>{formatCredits(remarkTarget?.credits ?? 0)}</b>
+            ：档位由邮箱取件命中额度关键字自动得出，不在这里手工修改。
+          </div>
         </Form>
       </Modal>
     </>

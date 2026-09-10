@@ -19,7 +19,6 @@ import type {
   CardRow,
   ChangePasswordRequest,
   CopyCardResponse,
-  CreateCreditTierRequest,
   CreditTier,
   CreditTierListResponse,
   DownloadPayload,
@@ -520,7 +519,7 @@ export function batchDisableCards(ids: number[]): Promise<BatchDisableCardsRespo
 }
 
 /* ------------------------------------------------------------------ *
- * 3.12 额度档位
+ * 3.12 额度档位（只读：档位由账号邮箱取件命中结果派生）
  * ------------------------------------------------------------------ */
 
 /** `GET /api/admin/credit-tiers`（已解包 `items`） */
@@ -530,14 +529,9 @@ export async function listCreditTiers(): Promise<CreditTier[]> {
   return Array.isArray(items) ? items : [];
 }
 
-/** `POST /api/admin/credit-tiers` */
-export function createCreditTier(payload: CreateCreditTierRequest): Promise<CreditTier> {
-  return request<CreditTier>('/admin/credit-tiers', { method: 'POST', body: payload });
-}
-
-/** `DELETE /api/admin/credit-tiers/:id` */
-export function deleteCreditTier(id: number): Promise<OkResponse> {
-  return request<OkResponse>(`/admin/credit-tiers/${id}`, { method: 'DELETE' });
+/** `GET /api/admin/credit-tiers`（保留 pending / total 元信息） */
+export function getCreditTiers(): Promise<CreditTierListResponse> {
+  return request<CreditTierListResponse>('/admin/credit-tiers');
 }
 
 /* ------------------------------------------------------------------ *
@@ -558,5 +552,11 @@ export function updateSettings(payload: SettingsPatch): Promise<Settings> {
  * 便捷常量
  * ------------------------------------------------------------------ */
 
-/** 契约默认额度档位（后台档位接口不可用时的兜底） */
-export const DEFAULT_CREDIT_TIERS: number[] = [5, 10, 20, 50, 100, 200, 500, 1000];
+/** 邮件原始 credits → 档位的进制（与服务端 common/credits.ts 保持一致） */
+export const MAIL_CREDITS_PER_TIER = 25;
+
+/** 档位数值展示（0 = 待定档） */
+export function formatTierLabel(credits: number | null | undefined): string {
+  const value = Number(credits);
+  return !Number.isFinite(value) || value <= 0 ? '待定档' : `${Math.trunc(value)} 额度`;
+}

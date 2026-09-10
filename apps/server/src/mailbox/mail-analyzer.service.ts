@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { firstNonEmpty, htmlToText, isPlainObject, toDate } from '../common/utils';
+import { CREDITS_PER_TIER } from '../common/credits';
 
 /** 验证码语境关键词 */
 const CODE_CONTEXT_PATTERN =
@@ -99,7 +100,8 @@ export class MailAnalyzerService {
       if (match && match[1]) {
         const credits = Number(match[1].replace(/,/g, ''));
         if (Number.isFinite(credits) && credits > 0) {
-          return { credits, balance: credits / 25 };
+          // balance 即对外档位口径：credits ÷ 25
+          return { credits, balance: credits / CREDITS_PER_TIER };
         }
       }
     }

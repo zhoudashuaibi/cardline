@@ -395,8 +395,13 @@ export default function PickupPage() {
                           <span className="pickup-record__tags">
                             <Tag style={{ margin: 0 }}>{record.label}</Tag>
                             {record.fromCard ? (
-                              <Tag color="blue" style={{ margin: 0 }}>
-                                {record.credits ?? '—'} 额度
+                              <Tag
+                                color={record.credits && record.credits > 0 ? 'blue' : 'orange'}
+                                style={{ margin: 0 }}
+                              >
+                                {record.credits && record.credits > 0
+                                  ? `${record.credits} 额度`
+                                  : '待定档'}
                               </Tag>
                             ) : null}
                           </span>

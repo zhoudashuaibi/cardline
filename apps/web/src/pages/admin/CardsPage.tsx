@@ -16,7 +16,6 @@ import type { ColumnsType } from 'antd/es/table';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 
 import {
-  DEFAULT_CREDIT_TIERS,
   batchDisableCards,
   downloadBlob,
   errorMessage,
@@ -47,7 +46,7 @@ export default function CardsPage() {
   const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(false);
 
-  const [creditOptions, setCreditOptions] = useState<number[]>(DEFAULT_CREDIT_TIERS);
+  const [creditOptions, setCreditOptions] = useState<number[]>([]);
   const [credits, setCredits] = useState<number[]>([]);
   const [status, setStatus] = useState<CardStatus[]>([]);
   const [keyword, setKeyword] = useState('');
@@ -61,11 +60,12 @@ export default function CardsPage() {
     let cancelled = false;
     listCreditTiers()
       .then((items) => {
-        if (cancelled || items.length === 0) return;
+        if (cancelled) return;
+        // 档位由账号邮箱取件结果派生，这里直接用返回的实际档位（含 0 = 待定档）
         setCreditOptions(items.map((item) => item.credits));
       })
       .catch(() => {
-        /* 档位接口不可用时使用契约默认档位 */
+        /* 档位接口不可用时留空，卡片列表本身仍可用 */
       });
     return () => {
       cancelled = true;
@@ -98,7 +98,11 @@ export default function CardsPage() {
   }, [load]);
 
   const creditSelectOptions = useMemo(
-    () => creditOptions.map((item) => ({ value: item, label: formatCredits(item) })),
+    () =>
+      creditOptions.map((item) => ({
+        value: item,
+        label: item > 0 ? formatCredits(item) : '待定档',
+      })),
     [creditOptions],
   );
 
@@ -181,8 +185,13 @@ export default function CardsPage() {
       title: '额度',
       dataIndex: 'credits',
       key: 'credits',
-      width: 120,
-      render: (value: number) => <Tag color="green">{formatCredits(value)}</Tag>,
+      width: 130,
+      render: (value: number) =>
+        value > 0 ? (
+          <Tag color="green">{formatCredits(value)}</Tag>
+        ) : (
+          <Tag color="orange">待定档</Tag>
+        ),
     },
     {
       title: '绑定账号',

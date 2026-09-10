@@ -5,7 +5,7 @@
 - Base URL: `http://localhost:3000/api`
 - 全部请求/响应为 `application/json; charset=utf-8`
 - 时间字段一律为 ISO8601 字符串（UTC），前端自行格式化为 `YYYY-MM-DD HH:mm:ss`
-- 金额/额度为整数 `credits`
+- 金额/额度为整数 `credits`；**账号额度只来自邮箱取件命中额度关键字（档位 = 命中 credits ÷ 25），不提供手工录入**
 
 ## 0. 通用约定
 
@@ -30,7 +30,7 @@ HTTP 4xx/5xx，body：
 }
 ```
 
-`code` 取值：`BAD_INPUT` | `UNAUTHORIZED` | `NOT_FOUND` | `CARD_INVALID` | `PICKUP_FAILED` | `UPSTREAM_ERROR` | `INTERNAL`
+`code` 取值：`BAD_INPUT` | `UNAUTHORIZED` | `NOT_FOUND` | `CARD_INVALID` | `CARD_DISABLED` | `CREDITS_PENDING` | `NO_STOCK` | `CONFLICT` | `PICKUP_FAILED` | `UPSTREAM_ERROR` | `INTERNAL`
 
 ### 鉴权
 
@@ -40,7 +40,8 @@ HTTP 4xx/5xx，body：
 
 | 名称 | 值 |
 | --- | --- |
-| `credits`（额度） | 整数，默认档位 `5,10,20,50,100,200,500,1000`（可在后台维护） |
+| `credits`（额度 / 档位） | 非负整数。**只来自邮箱取件命中的额度关键字**：档位 = 命中 credits ÷ 25（向下取整）；`0` = 待定档（未命中），不进兑换池 |
+| `creditStatus` | `pending` 待定档 / `ready` 已定档（= `credits > 0`） |
 | `banStatus` | `unknown` 未知 / `normal` 正常 / `banned` 已封禁 / `invalid` 凭据失效 |
 | `redeemStatus` | `unredeemed` 未兑换 / `redeemed` 已兑换 |
 | `deliverFormat` | `sub2api` / `cpa` / `email` |
@@ -64,16 +65,19 @@ HTTP 4xx/5xx，body：
     { "value": "cpa", "label": "CPA", "ext": "json", "hint": "Codex CPA auth JSON" },
     { "value": "email", "label": "邮箱 TXT", "ext": "txt", "hint": "邮箱----密码----clientid----refresh_token" }
   ],
-  "creditTiers": [5, 10, 20, 50, 100, 200, 500, 1000],
+  "creditTiers": [10, 20, 40],
   "stats": {
     "total": 1280,
     "available": 942,
     "redeemed": 338,
-    "byCredits": [{ "credits": 100, "total": 400, "available": 300, "redeemed": 100 }]
+    "byCredits": [{ "credits": 40, "total": 400, "available": 300, "redeemed": 100 }]
   },
   "pickup": { "enabled": true, "direct": true }
 }
 ```
+
+`creditTiers` = **当前有货的档位**（由账号实际额度派生，只列 `available > 0` 的档位）；
+`byCredits` 也只包含已定档（`credits > 0`）的账号，待定档账号不计入对外统计。
 
 ### 1.2 `POST /api/public/redeem`
 
@@ -144,7 +148,7 @@ HTTP 4xx/5xx，body：
 }
 ```
 
-失败 `code` 取值：`CARD_INVALID` 卡密不存在 / `NO_STOCK` 该额度已无可用账号 / `CARD_DISABLED` 卡密已停用。
+失败 `code` 取值：`CARD_INVALID` 卡密不存在 / `NO_STOCK` 该额度已无可用账号 / `CARD_DISABLED` 卡密已停用 / `CREDITS_PENDING` 账号额度待定（邮箱取件还没命中额度关键字，不进兑换池）。
 
 ### 1.3 `POST /api/public/pickup/resolve`
 
@@ -357,7 +361,8 @@ HTTP 4xx/5xx，body：
       "id": 12,
       "name": "abc@outlook.com",
       "email": "abc@outlook.com",
-      "credits": 100,
+      "credits": 40,
+      "creditStatus": "ready",
       "cardKey": "CARD-XXXXX-XXXXX-XXXXX",
       "createdAt": "2026-02-11T08:00:00.000Z",
       "banStatus": "normal",
@@ -383,10 +388,13 @@ HTTP 4xx/5xx，body：
     "banned": 12,
     "invalid": 3,
     "unknown": 20,
-    "byCredits": [{ "credits": 100, "total": 400, "unredeemed": 300, "redeemed": 100 }]
+    "pending": 96,
+    "byCredits": [{ "credits": 40, "total": 400, "unredeemed": 300, "redeemed": 100, "banned": 4 }]
   }
 }
 ```
+
+`summary.pending` = 待定档账号数；`byCredits` 由账号实际额度聚合（含 `credits: 0` 的待定档分组）。
 
 ### 3.2 `POST /api/admin/accounts/import`
 
@@ -398,7 +406,6 @@ HTTP 4xx/5xx，body：
 {
   "content": "{ \"accounts\": [ ... ] }",
   "files": [{ "name": "sub2api_格式参考.json", "content": "{...}" }],
-  "credits": 100,
   "prefix": "CARD",
   "source": "paste",
   "remark": "2月批次",
@@ -411,11 +418,14 @@ HTTP 4xx/5xx，body：
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
 | `content` / `files` | 二选一 | 至少一个 |
-| `credits` | 是 | 本批次额度（正整数） |
 | `prefix` | 否 | 卡密前缀，默认 `CARD` |
 | `skipDuplicate` | 否 | 默认 `true`，按 `email + 邮箱凭据` 去重，已存在则跳过 |
 | `remark` | 否 | 批次备注 |
 | `keyLength` / `keyGroups` | 否 | 卡密随机段长度/段数，默认 5/3 |
+
+> **没有 `credits` 字段**：额度不手填。导入的账号一律记为「待定档」（`credits = 0`），
+> 之后由邮箱取件命中额度关键字自动定档（`POST /api/admin/accounts/refresh-status`，`targets: ["credits"]`）。
+> 历史请求里携带的 `credits` 会被忽略。
 
 响应：
 
@@ -426,11 +436,14 @@ HTTP 4xx/5xx，body：
   "skipped": 2,
   "failed": 0,
   "cards": ["CARD-XXXXX-XXXXX-XXXXX"],
-  "credits": 100,
+  "credits": 0,
+  "pending": 98,
   "errors": [{ "index": 3, "name": "bad@x.com", "reason": "缺少 access_token" }],
   "samples": [{ "id": 1201, "name": "abc@outlook.com", "cardKey": "CARD-XXXXX-XXXXX-XXXXX" }]
 }
 ```
+
+`pending` = 待定档数量（= `imported`）；`credits` 恒为 0，仅为字段兼容保留。
 
 解析规则（与服务端 `parseAccounts` 对齐）：
 
@@ -459,6 +472,9 @@ HTTP 4xx/5xx，body：
 
 响应：更新后的单个账号对象（同 3.1 items 元素）。
 
+> `credits` 是**兜底纠错通道**（正常流程由取件自动定档，后台 UI 不暴露）。
+> 传 `0` 可把账号退回「待定档」，此时该卡不再可兑换。
+
 ### 3.5 `POST /api/admin/accounts/batch-delete`
 
 ```json
@@ -477,7 +493,7 @@ HTTP 4xx/5xx，body：
 
 ### 3.7 `POST /api/admin/accounts/refresh-status`
 
-刷新兑换状态与封禁状态。两种模式：
+刷新封禁状态、兑换状态，并可按邮箱取件**自动定档**。两种模式：
 
 **模式 A（指定账号）**
 
@@ -485,16 +501,19 @@ HTTP 4xx/5xx，body：
 { "ids": [12, 13], "targets": ["ban", "redeem"] }
 ```
 
-**模式 B（按筛选条件全量/批量）**
+**模式 B（按筛选条件分批推进）**
 
 ```json
-{ "filter": { "credits": [100], "banStatus": ["unknown"], "redeemStatus": ["unredeemed"], "keyword": "" }, "limit": 200, "targets": ["ban"] }
+{ "filter": { "credits": [0], "banStatus": ["unknown"], "keyword": "" }, "limit": 200, "targets": ["credits"], "cursor": 128 }
 ```
 
 | 字段 | 说明 |
 | --- | --- |
-| `targets` | `ban`（封禁）/ `redeem`（兑换）/ 两者都传 |
-| `limit` | 模式 B 单次最多处理条数，默认 100，最大 500 |
+| `targets` | `ban`（封禁）/ `redeem`（兑换）/ `credits`（取件定档）；可多选，`ban` 与 `credits` 共用同一次取件请求 |
+| `limit` | 模式 B 单轮最多处理条数，默认 100，最大 500 |
+| `cursor` | 只处理 `id > cursor` 的账号；配合响应里的 `nextCursor` 循环调用，直到 `nextCursor` 为 `null`（避免「取件成功但没命中额度」的账号被同一轮反复取件） |
+| `filter.credits` | 传 `[0]` 即只处理「待定档」账号 |
+| `filter.batchId` | 只处理某个导入批次 |
 
 响应：
 
@@ -502,17 +521,22 @@ HTTP 4xx/5xx，body：
 {
   "requested": 2,
   "processed": 2,
+  "nextCursor": 128,
   "ban": { "banned": 1, "normal": 1, "invalid": 0, "failed": 0 },
   "redeem": { "redeemed": 1, "unredeemed": 1, "failed": 0 },
+  "credits": { "hit": 1, "pending": 1, "failed": 0 },
   "items": [
-    { "id": 12, "banStatus": "banned", "banReason": "邮件命中封禁关键词", "redeemStatus": "redeemed", "redeemedAt": "2026-02-11T08:12:33.000Z", "error": null }
+    { "id": 12, "name": "abc@outlook.com", "credits": 40, "creditStatus": "ready", "mailCredits": 1000, "banStatus": "normal", "banReason": null, "redeemStatus": "redeemed", "redeemedAt": "2026-02-11T08:12:33.000Z", "error": null }
   ]
 }
 ```
 
+`ban` / `redeem` / `credits` 三块统计只在对应 `targets` 被请求时返回。
+
 判定规则：
 
 - **封禁状态**：邮箱取件 → 扫描最新 10 封邮件的 `subject + bodyPreview + body`，命中封禁关键词（`account deactivated` / `suspended` / `disabled` / `permanently deleted` / `账户已停用` / `账号已被封禁` 等）→ `banned`；取件成功且未命中 → `normal`；OAuth 换 token 失败（`invalid_grant` / `unauthorized_client`）→ `invalid`（凭据失效，非封禁）；网络错误 → 保持原状态并返回 `error`。
+- **额度定档**：同一次取件结果里命中额度关键字（`we've added N credits` / `添加了 N 额度` / `N クレジット` / `N créditos` …）→ 写回 `Account.credits = floor(N ÷ 25)`，计入 `hit`；取件成功但没命中 → 保持原值（导入时为 `0` = 待定档），计入 `pending`；取件失败 → `failed`。**未命中的账号不会被清空已有档位。**
 - **兑换状态**：读取账号自身 `access_token` 的 JWT `exp`；若已过期则用 `refresh_token` 向 OpenAI OAuth 端点刷新。刷新成功 → 账户仍活跃，同时把新 `access_token` / `refresh_token` 回写数据库；刷新失败（`invalid_grant`）→ 标记 `invalid` 并计入 `failed`。**账号被他人使用过（`access_token` 与导入时不一致或 `last_refresh` 推进）视为 `redeemed` 并记录 `redeemedAt`。**
 
 ### 3.8 `GET /api/admin/accounts/:id/mailbox`
@@ -595,25 +619,40 @@ HTTP 4xx/5xx，body：
 
 ```json
 {
-  "accounts": { "total": 1280, "unredeemed": 942, "redeemed": 338, "banned": 12, "invalid": 3 },
+  "accounts": { "total": 1280, "unredeemed": 942, "redeemed": 338, "banned": 12, "invalid": 3, "pending": 96 },
   "cards": { "total": 1280, "redeemed": 338, "unredeemed": 942 },
-  "batches": [{ "batchId": "b_20260211_080000", "credits": 100, "count": 100, "createdAt": "2026-02-11T08:00:00.000Z", "remark": "2月批次" }],
+  "batches": [{ "batchId": "b_20260211_080000", "credits": 0, "count": 100, "createdAt": "2026-02-11T08:00:00.000Z", "remark": "2月批次" }],
   "redeemTrend": [{ "date": "2026-02-11", "count": 12 }],
-  "byCredits": [{ "credits": 100, "total": 400, "unredeemed": 300, "redeemed": 100, "banned": 4 }]
+  "byCredits": [{ "credits": 40, "total": 400, "unredeemed": 300, "redeemed": 100, "banned": 4 }],
+  "tiers": [{ "credits": 40, "label": "40 额度", "accounts": 400, "available": 300, "redeemed": 100, "banned": 4, "disabled": 0 }],
+  "pending": 96
 }
 ```
 
+批次不再绑定档位（`credits` 恒为 0），额度以账号为准。
+
 ### 3.11 卡密管理
 
-- `GET /api/admin/cards` — 同 3.1 分页结构，`items` 元素为 `{ id, cardKey, credits, accountId, accountName, status, redeemedAt, createdAt, remark }`
+- `GET /api/admin/cards` — 同 3.1 分页结构，`items` 元素为 `{ id, cardKey, credits, creditStatus, accountId, accountName, status, redeemStatus, redeemedAt, createdAt, remark }`
 - `PATCH /api/admin/cards/:id` — `{ "status": "disabled" | "active", "remark": "..." }`
 - `POST /api/admin/cards/batch-disable` — `{ "ids": [1,2] }` → `{ "updated": 2 }`
 
-### 3.12 额度档位
+### 3.12 额度档位（只读派生）
 
-- `GET /api/admin/credit-tiers` → `{ "items": [{ "id": 1, "credits": 100, "label": "100 额度", "sort": 1 }] }`
-- `POST /api/admin/credit-tiers` → `{ "credits": 300, "label": "300 额度" }`
-- `DELETE /api/admin/credit-tiers/:id`
+档位不是手工维护的字典：账号导入后由「邮箱取件命中额度关键字」自动定档，后台只能查看分布，**没有新增/删除接口**。
+
+- `GET /api/admin/credit-tiers` →
+  ```json
+  {
+    "items": [
+      { "credits": 0,  "label": "待定档",  "accounts": 6,  "available": 0,  "redeemed": 0, "banned": 0, "disabled": 0 },
+      { "credits": 40, "label": "40 额度", "accounts": 12, "available": 9,  "redeemed": 3, "banned": 1, "disabled": 0 }
+    ],
+    "pending": 6,
+    "total": 18
+  }
+  ```
+  `available` 仅统计「未兑换 + 未封禁 + 未停用 + 已定档」的账号。
 
 ### 3.13 系统设置
 
@@ -650,7 +689,7 @@ model Account {
   id            Int       @id @default(autoincrement())
   name          String                       // 账号名（一般=邮箱）
   email         String?
-  credits       Int
+  credits       Int                          // 档位：0 = 待定档，>0 = 邮件命中 credits ÷ 25
   cardKey       String    @unique
   planType      String?
   accountId     String?                      // chatgpt_account_id
@@ -772,6 +811,9 @@ SCOPE        = https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.
 2. `GET MESSAGES_URL?$top=10&$orderby=ReceivedDateTime desc&$select=Id,Subject,From,ReceivedDateTime,BodyPreview,Body,IsRead`，头 `Authorization: Bearer <at>`、`Prefer: outlook.body-content-type=html`。
 3. 把 PascalCase 响应映射成 Graph 风格 camelCase。
 4. 验证码提取：先按上下文锚点 `(验证码|校验码|code|verification(\s+code)?|one-time password)[^0-9]{0,45}(\d{4,8})`，再在 60 字上下文内找 6 位数字，兜底取第一个 6 位数字。
-5. 额度提取：多语言关键词（`we've added N credits` / `添加了 N 额度` / `N クレジット` / `N créditos` / `N credits vào` 等），`balance = credits / 25`。
+5. **额度提取（= 账号档位的唯一来源）**：多语言关键词（`we've added N credits` / `添加了 N 额度` / `N クレジット` / `N créditos` / `N credits vào` 等）命中后取 `N`：
+   - 展示用余额 `balance = N / 25`
+   - **账号档位 `credits = floor(N / 25)`**，命中即写回 `Account.credits`；没命中保持原值（导入时为 `0` = 待定档，不进兑换池）
+   - 进制常量在 `apps/server/src/common/credits.ts`（`CREDITS_PER_TIER = 25`），前后台共用
 6. 封禁关键词：`account deactivated|suspended|disabled|permanently deleted|账户已停用|账号已封禁|帳號已停用` 等。
 7. 并发 4，`Promise.all` worker 池；失败不阻塞其它账号。

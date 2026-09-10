@@ -4,7 +4,7 @@
 
 import dayjs from 'dayjs';
 
-import type { BanStatus, CardStatus, MessageKind, RedeemStatus } from '../api/types';
+import type { BanStatus, CardStatus, CreditStatus, MessageKind, RedeemStatus } from '../api/types';
 
 /* ------------------------------------------------------------------ *
  * 时间
@@ -122,6 +122,12 @@ export const BAN_STATUS_META: Record<BanStatus, StatusMeta> = {
 export const REDEEM_STATUS_META: Record<RedeemStatus, StatusMeta> = {
   unredeemed: { label: '未兑换', color: 'default', tone: 'idle' },
   redeemed: { label: '已兑换', color: 'processing', tone: 'info' },
+};
+
+/** 额度档位状态：pending = 邮箱取件还没命中额度关键字，不进兑换池 */
+export const CREDIT_STATUS_META: Record<CreditStatus, StatusMeta> = {
+  pending: { label: '待定档', color: 'warning', tone: 'warn' },
+  ready: { label: '已定档', color: 'success', tone: 'ok' },
 };
 
 export const CARD_STATUS_META: Record<CardStatus, StatusMeta> = {

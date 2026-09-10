@@ -205,6 +205,9 @@ export default function MailBrowser({
                       {typeof result.credits === 'number' && result.credits > 0 ? (
                         <Tag color="blue">+{result.credits} credits</Tag>
                       ) : null}
+                      {typeof result.tier === 'number' && result.tier > 0 ? (
+                        <Tag color="green">已定档 {result.tier} 额度</Tag>
+                      ) : null}
                       {!result.ok ? <Tag color="error">取件失败</Tag> : null}
                     </span>
                   </div>

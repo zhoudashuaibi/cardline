@@ -4,6 +4,7 @@ import { ConvertService } from '../convert/convert.service';
 import { MailboxService } from '../mailbox/mailbox.service';
 import { SettingsService } from '../settings/settings.service';
 import { FORMAT_META } from '../common/error-codes';
+import { isPendingTier, tierFromMailCredits } from '../common/credits';
 import {
   looksEmail,
   normalizeCardKey,
@@ -48,9 +49,8 @@ export class RedeemService {
 
   async publicMeta() {
     const settings = await this.settings.getAll();
-    const tiers = await this.prisma.creditTier.findMany({ orderBy: { sort: 'asc' } });
     const grouped = await this.prisma.account.groupBy({
-      by: ['credits', 'redeemStatus', 'banStatus'],
+      by: ['credits', 'redeemStatus', 'banStatus', 'cardDisabled'],
       _count: { _all: true },
     });
 
@@ -64,20 +64,23 @@ export class RedeemService {
       }
       return byCreditsMap.get(credits)!;
     };
-    for (const tier of tiers) ensure(tier.credits);
 
     let total = 0;
     let available = 0;
     let redeemed = 0;
     for (const group of grouped) {
-      const entry = ensure(group.credits);
       const count = group._count._all;
-      entry.total += count;
       total += count;
+      // 待定档（额度 0）不对外展示，也不算可售
+      if (isPendingTier(group.credits)) continue;
+
+      const entry = ensure(group.credits);
+      entry.total += count;
       const usable =
         group.redeemStatus === 'unredeemed' &&
         group.banStatus !== 'banned' &&
-        group.banStatus !== 'invalid';
+        group.banStatus !== 'invalid' &&
+        !group.cardDisabled;
       if (usable) {
         entry.available += count;
         available += count;
@@ -87,6 +90,8 @@ export class RedeemService {
         redeemed += count;
       }
     }
+
+    const byCredits = [...byCreditsMap.values()].sort((a, b) => a.credits - b.credits);
 
     return {
       siteName: settings.siteName,
@@ -98,14 +103,15 @@ export class RedeemService {
         ext: FORMAT_META[value].ext,
         hint: FORMAT_META[value].hint,
       })),
-      creditTiers: tiers.map((tier) => tier.credits),
+      /** 在售档位（= 账号实际额度，由邮箱取件命中关键字自动定档，非手工维护） */
+      creditTiers: byCredits.filter((item) => item.available > 0).map((item) => item.credits),
       defaultFormat: settings.defaultFormat,
       redeemLimitPerCard: settings.redeemLimitPerCard,
       stats: {
         total,
         available,
         redeemed,
-        byCredits: [...byCreditsMap.values()].sort((a, b) => a.credits - b.credits),
+        byCredits,
       },
       pickup: {
         enabled: true,
@@ -220,6 +226,11 @@ export class RedeemService {
     if (account.cardDisabled) {
       await this.log(cardKey, account.id, account.credits, format, false, 'CARD_DISABLED', ip, userAgent);
       return fail('CARD_DISABLED', '该卡密已被停用');
+    }
+    // 待定档：账号额度还没从邮箱取件里定出来，不进兑换池（避免按错误档位交付）
+    if (isPendingTier(account.credits)) {
+      await this.log(cardKey, account.id, account.credits, format, false, 'CREDITS_PENDING', ip, userAgent);
+      return fail('CREDITS_PENDING', '该卡密账号额度待定（邮箱取件尚未命中额度），请稍后重试');
     }
     if (account.banStatus === 'banned') {
       await this.log(cardKey, account.id, account.credits, format, false, 'NO_STOCK', ip, userAgent);
@@ -445,7 +456,7 @@ export class RedeemService {
               source: 'card',
               complete: this.mailbox.isComplete(credential),
               fromCard: cardKey,
-              credits: account.credits,
+              credits: isPendingTier(account.credits) ? null : account.credits,
               accountId: account.id,
               label: '卡密',
               error: this.mailbox.isComplete(credential)
@@ -471,7 +482,7 @@ export class RedeemService {
             source: account ? 'card' : 'email',
             complete: this.mailbox.isComplete(credential),
             fromCard: account?.cardKey ?? null,
-            credits: account?.credits ?? null,
+            credits: account && !isPendingTier(account.credits) ? account.credits : null,
             accountId: account?.id ?? null,
             label: account ? '邮箱（已匹配账号）' : '仅邮箱',
             error: this.mailbox.isComplete(credential)
@@ -670,6 +681,8 @@ export class RedeemService {
             error: result.error,
           },
         });
+        // 取件即定档：命中额度关键字 → 写回账号档位（0 = 仍未命中，保持原值）
+        const tier = tierFromMailCredits(result.credits);
         await this.prisma.account.update({
           where: { id: result.accountId },
           data: {
@@ -677,6 +690,7 @@ export class RedeemService {
             banReason: result.banned ? result.banReason : null,
             banKeywords: result.banned ? JSON.stringify(result.banKeywords) : null,
             banCheckedAt: new Date(),
+            ...(tier > 0 ? { credits: tier } : {}),
           },
         });
       } catch (error) {
@@ -685,7 +699,11 @@ export class RedeemService {
     }
 
     return {
-      results: enriched,
+      results: enriched.map((result) => ({
+        ...result,
+        /** 本次取件换算出的档位（未命中为 null） */
+        tier: result.ok && tierFromMailCredits(result.credits) > 0 ? tierFromMailCredits(result.credits) : null,
+      })),
       summary: this.mailbox.summarize(enriched),
     };
   }

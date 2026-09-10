@@ -38,8 +38,11 @@ export type MessageKind = 'code' | 'credits' | 'ban' | 'normal';
 /** 排序方向（antd 风格） */
 export type SortOrder = 'ascend' | 'descend';
 
-/** 刷新目标 */
-export type RefreshTarget = 'ban' | 'redeem';
+/** 额度档位状态：pending = 待定档（邮箱取件还没命中额度关键字） */
+export type CreditStatus = 'pending' | 'ready';
+
+/** 刷新目标（credits = 通过邮箱取件命中额度关键字自动定档） */
+export type RefreshTarget = 'ban' | 'redeem' | 'credits';
 
 /** 错误码 */
 export type ApiErrorCode =
@@ -47,12 +50,20 @@ export type ApiErrorCode =
   | 'UNAUTHORIZED'
   | 'NOT_FOUND'
   | 'CARD_INVALID'
+  | 'CARD_DISABLED'
+  | 'CREDITS_PENDING'
+  | 'CONFLICT'
   | 'PICKUP_FAILED'
   | 'UPSTREAM_ERROR'
   | 'INTERNAL';
 
 /** 兑换结果码 */
-export type RedeemResultCode = 'OK' | 'CARD_INVALID' | 'NO_STOCK' | 'CARD_DISABLED';
+export type RedeemResultCode =
+  | 'OK'
+  | 'CARD_INVALID'
+  | 'NO_STOCK'
+  | 'CARD_DISABLED'
+  | 'CREDITS_PENDING';
 
 /* ------------------------------------------------------------------ *
  * 1.1 GET /api/public/meta
@@ -223,6 +234,8 @@ export interface PickupResult {
   banKeywords: string[];
   credits: number | null;
   creditsBalance: number | null;
+  /** 本次取件换算出的档位（未命中额度为 null），命中时会写回账号 */
+  tier?: number | null;
   latestCode: string | null;
   accountId: number | null;
   cardKey: string | null;
@@ -316,6 +329,8 @@ export interface AccountRow {
   name: string;
   email: string | null;
   credits: number;
+  /** pending = 待定档（还没从邮件取件里定出额度），不进兑换池 */
+  creditStatus: CreditStatus;
   cardKey: string;
   createdAt: string;
   banStatus: BanStatus;
@@ -336,6 +351,7 @@ export interface AccountCreditsSummary {
   total: number;
   unredeemed: number;
   redeemed: number;
+  banned: number;
 }
 
 export interface AccountSummary {
@@ -345,6 +361,8 @@ export interface AccountSummary {
   banned: number;
   invalid: number;
   unknown: number;
+  /** 待定档账号数（额度还没从邮件里定出来） */
+  pending: number;
   byCredits: AccountCreditsSummary[];
 }
 
@@ -363,7 +381,6 @@ export interface AccountListResponse {
 export interface ImportRequest {
   content?: string;
   files?: ImportFile[];
-  credits: number;
   prefix?: string;
   source?: ImportSource;
   remark?: string;
@@ -390,7 +407,10 @@ export interface ImportResponse {
   skipped: number;
   failed: number;
   cards: string[];
+  /** 恒为 0：额度不再手填，导入后由邮箱取件自动定档 */
   credits: number;
+  /** 待定档数量（= imported） */
+  pending: number;
   errors: ImportErrorItem[];
   samples: ImportSample[];
 }
@@ -447,6 +467,7 @@ export interface RefreshFilterPayload {
   banStatus?: BanStatus[];
   redeemStatus?: RedeemStatus[];
   keyword?: string;
+  batchId?: string;
 }
 
 export interface RefreshStatusRequest {
@@ -456,6 +477,8 @@ export interface RefreshStatusRequest {
   filter?: RefreshFilterPayload;
   /** 模式 B 单次最多处理条数，默认 100，最大 500 */
   limit?: number;
+  /** 只处理 id > cursor 的账号；配合响应的 nextCursor 循环，直到 nextCursor 为 null */
+  cursor?: number;
   targets: RefreshTarget[];
 }
 
@@ -472,8 +495,21 @@ export interface RefreshRedeemCounters {
   failed: number;
 }
 
+export interface RefreshCreditsCounters {
+  /** 命中额度关键字并完成定档 */
+  hit: number;
+  /** 取件成功但没命中额度 → 仍为待定档 */
+  pending: number;
+  failed: number;
+}
+
 export interface RefreshStatusItem {
   id: number;
+  name?: string;
+  credits?: number;
+  creditStatus?: CreditStatus;
+  /** 本次邮件命中的原始 credits */
+  mailCredits?: number | null;
   banStatus: BanStatus;
   banReason: string | null;
   redeemStatus: RedeemStatus;
@@ -484,8 +520,11 @@ export interface RefreshStatusItem {
 export interface RefreshStatusResponse {
   requested: number;
   processed: number;
+  /** 下一轮要传的 cursor；null 表示已处理完 */
+  nextCursor?: number | null;
   ban?: RefreshBanCounters;
   redeem?: RefreshRedeemCounters;
+  credits?: RefreshCreditsCounters;
   items: RefreshStatusItem[];
 }
 
@@ -565,6 +604,9 @@ export interface OverviewAccounts {
   redeemed: number;
   banned: number;
   invalid: number;
+  unknown?: number;
+  /** 待定档账号数 */
+  pending?: number;
 }
 
 export interface OverviewCards {
@@ -575,6 +617,7 @@ export interface OverviewCards {
 
 export interface OverviewBatch {
   batchId: string;
+  /** 恒为 0：批次不再绑定档位，额度由取件自动得出 */
   credits: number;
   count: number;
   createdAt: string;
@@ -600,6 +643,9 @@ export interface OverviewResponse {
   batches: OverviewBatch[];
   redeemTrend: RedeemTrendPoint[];
   byCredits: OverviewCreditsRow[];
+  /** 档位分布（派生自账号额度） */
+  tiers?: CreditTier[];
+  pending?: number;
 }
 
 /* ------------------------------------------------------------------ *
@@ -610,6 +656,7 @@ export interface CardRow {
   id: number;
   cardKey: string;
   credits: number;
+  creditStatus?: CreditStatus;
   accountId: number | null;
   accountName: string | null;
   status: CardStatus;
@@ -658,23 +705,25 @@ export interface BatchDisableCardsResponse {
 }
 
 /* ------------------------------------------------------------------ *
- * 3.12 额度档位
+ * 3.12 额度档位（只读派生：档位由账号邮箱取件命中结果自动得出）
  * ------------------------------------------------------------------ */
 
 export interface CreditTier {
-  id: number;
+  /** 档位数值 = 邮件命中 credits ÷ 25；0 = 待定档 */
   credits: number;
   label: string;
-  sort: number;
+  accounts: number;
+  available: number;
+  redeemed: number;
+  banned: number;
+  disabled: number;
 }
 
 export interface CreditTierListResponse {
   items: CreditTier[];
-}
-
-export interface CreateCreditTierRequest {
-  credits: number;
-  label: string;
+  /** 待定档账号数 */
+  pending: number;
+  total: number;
 }
 
 /* ------------------------------------------------------------------ *

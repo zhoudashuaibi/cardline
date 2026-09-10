@@ -70,7 +70,6 @@ export class AccountsController {
     return this.accounts.importAccounts({
       content: body?.content as string,
       files: body?.files as Array<{ name?: string; content?: string }>,
-      credits: Number(body?.credits),
       prefix: body?.prefix as string,
       remark: body?.remark as string,
       source: body?.source as string,
@@ -101,6 +100,7 @@ export class AccountsController {
       filter: (body?.filter || {}) as AccountFilter,
       targets: (body?.targets as string[]) || [],
       limit: Number(body?.limit) || 100,
+      cursor: body?.cursor === undefined ? undefined : Number(body.cursor),
     });
   }
 

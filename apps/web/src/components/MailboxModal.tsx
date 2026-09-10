@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, App as AntApp, Button, Collapse, Modal, Space, Spin, Tag } from 'antd';
 
-import { errorMessage, getAccountMailbox, updateAccount } from '../api/client';
+import { errorMessage, getAccountMailbox, updateAccount, MAIL_CREDITS_PER_TIER } from '../api/client';
 import type {
   AccountRow,
   MailboxCredential,
@@ -136,14 +136,15 @@ export default function MailboxModal({ open, account, onClose, onChanged }: Mail
     const parts: string[] = [];
     if (pickup.latestCode) parts.push(`命中验证码 ${pickup.latestCode}`);
     if (typeof pickup.credits === 'number') {
+      const tier = Math.floor(pickup.credits / MAIL_CREDITS_PER_TIER);
       parts.push(
         `额度 +${pickup.credits}${
           typeof pickup.creditsBalance === 'number' ? ` (余额 ${pickup.creditsBalance})` : ''
-        }`,
+        }${tier > 0 ? ` → 已定档 ${tier} 额度` : ''}`,
       );
     }
     if (!pickup.banned) parts.push('未命中封禁关键词');
-    return parts.join(' · ') || '取件成功，未发现验证码或额度信息';
+    return parts.join(' · ') || '取件成功，未发现验证码或额度信息（账号仍为待定档）';
   }, [pickup]);
 
   const banMeta = info ? BAN_STATUS_META[info.banStatus] : null;
@@ -204,8 +205,14 @@ export default function MailboxModal({ open, account, onClose, onChanged }: Mail
                 <div className="pickup-summary__value">{info?.email || info?.name || '—'}</div>
               </div>
               <div>
-                <div className="pickup-summary__label">额度</div>
-                <div className="pickup-summary__value">{formatCredits(info?.credits)}</div>
+                <div className="pickup-summary__label">额度（档位）</div>
+                <div className="pickup-summary__value">
+                  {info && info.credits > 0 ? (
+                    formatCredits(info.credits)
+                  ) : (
+                    <Tag color="warning">待定档</Tag>
+                  )}
+                </div>
               </div>
               <div>
                 <div className="pickup-summary__label">卡密</div>

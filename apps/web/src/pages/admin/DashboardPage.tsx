@@ -13,7 +13,8 @@ const CREDITS_COLUMNS: ColumnsType<OverviewCreditsRow> = [
     title: '额度',
     dataIndex: 'credits',
     key: 'credits',
-    render: (value: number) => <Tag color="green">{formatCredits(value)}</Tag>,
+    render: (value: number) =>
+      value > 0 ? <Tag color="green">{formatCredits(value)}</Tag> : <Tag color="orange">待定档</Tag>,
   },
   { title: '总数', dataIndex: 'total', key: 'total', render: (value: number) => formatNumber(value) },
   {
@@ -44,10 +45,10 @@ const BATCH_COLUMNS: ColumnsType<OverviewBatch> = [
     render: (value: string) => <span className="mono">{value}</span>,
   },
   {
-    title: '额度',
+    title: '额度来源',
     dataIndex: 'credits',
     key: 'credits',
-    render: (value: number) => formatCredits(value),
+    render: () => <span style={{ color: '#6B7A74' }}>取件自动定档</span>,
   },
   {
     title: '数量',
@@ -103,6 +104,7 @@ export default function DashboardPage() {
 
   const stats = [
     { key: 'total', title: '账号总数', value: accounts?.total ?? 0 },
+    { key: 'pending', title: '待定档', value: accounts?.pending ?? 0 },
     { key: 'unredeemed', title: '未兑换', value: accounts?.unredeemed ?? 0 },
     { key: 'redeemed', title: '已兑换', value: accounts?.redeemed ?? 0 },
     { key: 'banned', title: '已封禁', value: accounts?.banned ?? 0 },

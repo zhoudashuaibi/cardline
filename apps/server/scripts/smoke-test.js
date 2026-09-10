@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 /**
- * 端到端冒烟测试：登录 → 导入账号 → 列表筛选 → 兑换卡密 → 交付文件校验 → 导出 → 统计
+ * 端到端冒烟测试：登录 → 导入账号（待定档）→ 待定档拦截兑换 → 定档 → 兑换 → 交付文件校验 → 导出 → 统计
  * 用法：node scripts/smoke-test.js [apiBase] [sampleJsonPath] [credits]
+ *
+ * 说明：额度不再由导入入参决定，而是邮箱取件命中额度关键字后自动得出
+ * （档位 = 命中 credits ÷ 25）。测试环境没有真实邮箱额度邮件，
+ * 因此用 `PATCH /admin/accounts/:id { credits }` 这个兜底通道模拟「取件已定档」。
  */
 'use strict';
 
@@ -84,7 +88,11 @@ async function main() {
   const meta = await call('GET', '/public/meta');
   assert(meta.json?.siteName === 'Cardline', '站点信息读取正常', meta.json?.siteName);
   assert(meta.json?.formats?.length === 3, '交付格式为 3 种', meta.json?.formats?.map((f) => f.value).join(', '));
-  assert(meta.json?.creditTiers?.length > 0, '额度档位已初始化', meta.json?.creditTiers?.join(','));
+  assert(
+    Array.isArray(meta.json?.creditTiers),
+    '在售档位由账号派生（无手工档位表）',
+    `creditTiers=${JSON.stringify(meta.json?.creditTiers)}`,
+  );
 
   // -------------------------------------------------------------------------
   console.log('\n[2] 后台登录');
@@ -100,7 +108,7 @@ async function main() {
   token = savedToken;
 
   // -------------------------------------------------------------------------
-  console.log('\n[3] 导入账号（真实 sub2api 样例）');
+  console.log('\n[3] 导入账号（真实 sub2api 样例，额度不手填）');
   if (!fs.existsSync(SAMPLE)) {
     bad('样例文件存在', SAMPLE);
   } else {
@@ -109,7 +117,6 @@ async function main() {
     console.log(`    样例：${path.basename(SAMPLE)} (${(bytes / 1024).toFixed(1)} KB)`);
     const imported = await call('POST', '/admin/accounts/import', {
       content,
-      credits: CREDITS,
       prefix: 'CARD',
       remark: '冒烟测试批次',
       skipDuplicate: true,
@@ -121,6 +128,11 @@ async function main() {
       `imported=${imported.json?.imported}, skipped=${imported.json?.skipped}`,
     );
     assert(imported.json?.failed === 0, '没有失败项', `failed=${imported.json?.failed}`);
+    assert(
+      imported.json?.pending === imported.json?.imported,
+      '导入的账号全部记为待定档',
+      `pending=${imported.json?.pending}, imported=${imported.json?.imported}`,
+    );
     if (imported.json?.imported > 0) {
       assert(
         Array.isArray(imported.json?.cards) && imported.json.cards.length === imported.json.imported,
@@ -133,7 +145,6 @@ async function main() {
     }
     const dup = await call('POST', '/admin/accounts/import', {
       content,
-      credits: CREDITS,
       skipDuplicate: true,
       source: 'paste',
     });
@@ -149,12 +160,17 @@ async function main() {
     assert(first[field] !== undefined && first[field] !== null, `字段存在：${field}`, String(first[field]).slice(0, 48));
   }
   assert(first.hasMailbox === true, '解析出邮箱取件凭据');
+  assert(first.creditStatus === 'pending' && first.credits === 0, '新导入账号为待定档', `creditStatus=${first.creditStatus}`);
 
-  const filtered = await call('GET', `/admin/accounts?credits=${CREDITS}&redeemStatus=unredeemed&banStatus=unknown&pageSize=3`);
-  assert(filtered.json?.items?.length > 0, '额度+状态筛选生效', `total=${filtered.json?.total}`);
-  assert(filtered.json.items.every((row) => row.credits === CREDITS), '筛选结果额度正确');
+  const pendingFilter = await call('GET', '/admin/accounts?credits=0&pageSize=5');
+  assert(
+    pendingFilter.json?.items?.length > 0 && pendingFilter.json.items.every((row) => row.credits === 0),
+    '待定档筛选生效',
+    `total=${pendingFilter.json?.total}`,
+  );
+  assert(pendingFilter.json?.summary?.pending > 0, '汇总里给出待定档数量', `pending=${pendingFilter.json?.summary?.pending}`);
 
-  const byCredits = await call('GET', `/admin/accounts?credits=999999&pageSize=3`);
+  const byCredits = await call('GET', '/admin/accounts?credits=999999&pageSize=3');
   assert(byCredits.json?.items?.length === 0, '不存在的额度返回空');
 
   const asc = await call('GET', '/admin/accounts?pageSize=3&sortField=id&sortOrder=ascend');
@@ -163,6 +179,44 @@ async function main() {
 
   const keyword = await call('GET', `/admin/accounts?keyword=${encodeURIComponent(first.cardKey)}&pageSize=3`);
   assert(keyword.json?.items?.length === 1, '按卡密搜索命中唯一账号');
+
+  // -------------------------------------------------------------------------
+  console.log('\n[4.1] 待定档账号不进兑换池');
+  const pendingRedeem = await call('POST', '/public/redeem', { cards: [first.cardKey], format: 'sub2api' });
+  assert(
+    pendingRedeem.json?.results?.[0]?.code === 'CREDITS_PENDING',
+    '待定档卡密兑换被拒绝',
+    pendingRedeem.json?.results?.[0]?.message,
+  );
+
+  const metaPending = await call('GET', '/public/meta');
+  assert(
+    !metaPending.json?.creditTiers?.includes(0),
+    '对外档位里不出现待定档',
+    JSON.stringify(metaPending.json?.creditTiers),
+  );
+
+  // -------------------------------------------------------------------------
+  console.log('\n[4.2] 定档（模拟取件命中额度：档位 = 命中 credits ÷ 25）');
+  const tiered = await call('PATCH', `/admin/accounts/${first.id}`, { credits: CREDITS });
+  assert(tiered.json?.credits === CREDITS, '兜底通道写回档位成功', `credits=${tiered.json?.credits}`);
+  assert(tiered.json?.creditStatus === 'ready', '账号状态变为已定档');
+
+  const tiers = await call('GET', '/admin/credit-tiers');
+  assert(tiers.json?.items?.length > 0, '额度档位可读（派生）', `${tiers.json?.items?.length} 个`);
+  assert(
+    tiers.json.items.some((item) => item.credits === CREDITS && item.available >= 1),
+    '新档位出现在分布里',
+    JSON.stringify(tiers.json.items.find((item) => item.credits === CREDITS)),
+  );
+  assert(
+    tiers.json.items.every((item) => item.id === undefined),
+    '档位不再是手工维护的记录（无 id 字段）',
+  );
+
+  const filtered = await call('GET', `/admin/accounts?credits=${CREDITS}&redeemStatus=unredeemed&pageSize=3`);
+  assert(filtered.json?.items?.length > 0, '额度+状态筛选生效', `total=${filtered.json?.total}`);
+  assert(filtered.json.items.every((row) => row.credits === CREDITS), '筛选结果额度正确');
 
   // -------------------------------------------------------------------------
   console.log('\n[5] 复制卡密');
@@ -283,13 +337,32 @@ async function main() {
   );
 
   // -------------------------------------------------------------------------
-  console.log('\n[9] 刷新状态');
+  console.log('\n[9] 刷新状态 / 取件定档');
   const refresh = await call('POST', '/admin/accounts/refresh-status', {
     ids: [first.id],
     targets: ['ban', 'redeem'],
   });
   assert(refresh.json?.processed === 1, '刷新接口处理了 1 条');
   assert(refresh.json?.ban && refresh.json?.redeem, '返回封禁/兑换双维度统计', JSON.stringify(refresh.json?.ban) + ' ' + JSON.stringify(refresh.json?.redeem));
+
+  // 定档：只处理待定档账号，带 cursor 分批推进（返回 credits 计数与 nextCursor）
+  const tierJob = await call('POST', '/admin/accounts/refresh-status', {
+    filter: { credits: [0] },
+    limit: 2,
+    targets: ['credits'],
+  });
+  assert(tierJob.json?.credits !== undefined, '返回定档统计', JSON.stringify(tierJob.json?.credits));
+  assert(
+    (tierJob.json?.credits?.hit ?? 0) + (tierJob.json?.credits?.pending ?? 0) + (tierJob.json?.credits?.failed ?? 0) <=
+      tierJob.json?.processed,
+    '定档计数不超过处理条数',
+    `processed=${tierJob.json?.processed}`,
+  );
+  assert(
+    tierJob.json?.processed === 0 || typeof tierJob.json?.nextCursor === 'number',
+    'cursor 分页推进可用',
+    `nextCursor=${JSON.stringify(tierJob.json?.nextCursor)}`,
+  );
 
   // -------------------------------------------------------------------------
   console.log('\n[10] 后台导出');
@@ -308,14 +381,15 @@ async function main() {
   const cards = await call('GET', '/admin/cards?pageSize=5');
   assert(cards.json?.items?.length > 0, '卡密列表可读', `total=${cards.json?.total}`);
   assert(cards.json.items[0].status === 'active', '卡密状态为 active');
+  assert(
+    cards.json.items.every((item) => typeof item.credits === 'number'),
+    '卡密列表带出额度',
+  );
 
-  const tiers = await call('GET', '/admin/credit-tiers');
-  assert(tiers.json?.items?.length > 0, '额度档位可读', `${tiers.json?.items?.length} 个`);
-
-  const newTier = await call('POST', '/admin/credit-tiers', { credits: 8888, label: '8888 额度' });
-  assert(newTier.json?.credits === 8888, '新增额度档位成功');
-  const delTier = await call('DELETE', `/admin/credit-tiers/${newTier.json.id}`);
-  assert(delTier.json?.ok === true, '删除额度档位成功');
+  const tiersRead = await call('GET', '/admin/credit-tiers');
+  assert(tiersRead.json?.items?.length > 0, '额度档位分布可读', `${tiersRead.json?.items?.length} 个`);
+  const createTier = await call('POST', '/admin/credit-tiers', { credits: 8888 }, { allowFailure: true });
+  assert(createTier.status === 404, '档位不支持手工新增（接口已移除）', `HTTP ${createTier.status}`);
 
   const settings = await call('GET', '/admin/settings');
   assert(settings.json?.siteName === 'Cardline', '设置可读');
@@ -325,16 +399,29 @@ async function main() {
 
   const overview = await call('GET', '/admin/stats/overview');
   assert(overview.json?.accounts?.total > 0, '概览统计正常', `total=${overview.json?.accounts?.total}`);
+  assert(typeof overview.json?.accounts?.pending === 'number', '概览给出待定档数量', `pending=${overview.json?.accounts?.pending}`);
   assert(Array.isArray(overview.json?.redeemTrend), '兑换趋势数据存在', `${overview.json?.redeemTrend?.length} 天`);
   assert(overview.json?.batches?.length >= 1, '批次记录存在', overview.json?.batches?.[0]?.batchId);
+  assert(Array.isArray(overview.json?.tiers), '概览带出档位分布', `${overview.json?.tiers?.length} 个`);
 
   // -------------------------------------------------------------------------
-  console.log('\n[12] 账号更新 / 清理');
+  console.log('\n[12] 账号更新 / 待定档回退 / 清理');
   const patchedAccount = await call('PATCH', `/admin/accounts/${first.id}`, { remark: '冒烟测试备注' });
   assert(patchedAccount.json?.remark === '冒烟测试备注', '更新账号备注成功');
   const marked = await call('PATCH', `/admin/accounts/${first.id}`, { banStatus: 'normal' });
   assert(marked.json?.banStatus === 'normal', '手动标记封禁状态成功');
   await call('PATCH', `/admin/accounts/${first.id}`, { remark: '' });
+
+  const reset = await call('PATCH', `/admin/accounts/${first.id}`, { credits: 0 });
+  assert(reset.json?.creditStatus === 'pending', '额度可退回待定档', `credits=${reset.json?.credits}`);
+  const blocked = await call('POST', '/public/redeem', { cards: [first.cardKey], format: 'sub2api' });
+  assert(
+    blocked.json?.results?.[0]?.code === 'CREDITS_PENDING',
+    '退回待定档后该卡不再可兑换',
+    blocked.json?.results?.[0]?.message,
+  );
+  const restored = await call('PATCH', `/admin/accounts/${first.id}`, { credits: CREDITS });
+  assert(restored.json?.creditStatus === 'ready', '重新定档成功');
 
   console.log(`\n=== 结果：通过 ${passed} 项，失败 ${failed} 项 ===\n`);
   process.exit(failed ? 1 : 0);

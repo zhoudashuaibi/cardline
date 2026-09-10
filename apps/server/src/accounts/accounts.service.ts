@@ -18,6 +18,7 @@ import {
   toPositiveInt,
   toStringArray,
 } from '../common/utils';
+import { PENDING_TIER, formatTier, isPendingTier, tierFromMailCredits } from '../common/credits';
 import type { Account } from '@prisma/client';
 
 const SORTABLE_FIELDS = new Set([
@@ -57,6 +58,8 @@ export interface AccountRow {
   name: string;
   email: string | null;
   credits: number;
+  /** pending = 待定档（还没从邮件取件里定出额度），此时不进兑换池 */
+  creditStatus: 'pending' | 'ready';
   cardKey: string;
   cardDisabled: boolean;
   planType: string | null;
@@ -145,6 +148,7 @@ export class AccountsService {
       name: account.name,
       email: account.email,
       credits: account.credits,
+      creditStatus: isPendingTier(account.credits) ? 'pending' : 'ready',
       cardKey: account.cardKey,
       cardDisabled: account.cardDisabled,
       planType: account.planType,
@@ -168,7 +172,7 @@ export class AccountsService {
 
   private async computeSummary(filter: AccountFilter) {
     const base = this.buildWhere(filter);
-    const [total, unredeemed, redeemed, banned, invalid, unknown, grouped, tierRows] =
+    const [total, unredeemed, redeemed, banned, invalid, unknown, pending, grouped] =
       await Promise.all([
         this.prisma.account.count({ where: base }),
         this.prisma.account.count({ where: { AND: [base, { redeemStatus: 'unredeemed' }] } }),
@@ -176,14 +180,15 @@ export class AccountsService {
         this.prisma.account.count({ where: { AND: [base, { banStatus: 'banned' }] } }),
         this.prisma.account.count({ where: { AND: [base, { banStatus: 'invalid' }] } }),
         this.prisma.account.count({ where: { AND: [base, { banStatus: 'unknown' }] } }),
+        this.prisma.account.count({ where: { AND: [base, { credits: PENDING_TIER }] } }),
         this.prisma.account.groupBy({
           by: ['credits', 'redeemStatus', 'banStatus'],
           where: base,
           _count: { _all: true },
         }),
-        this.prisma.creditTier.findMany({ orderBy: { sort: 'asc' } }),
       ]);
 
+    // 档位完全由账号实际额度派生（0 = 待定档），没有手工维护的档位字典
     const byCreditsMap = new Map<
       number,
       { credits: number; total: number; unredeemed: number; redeemed: number; banned: number }
@@ -194,7 +199,6 @@ export class AccountsService {
       }
       return byCreditsMap.get(credits)!;
     };
-    for (const tier of tierRows) ensure(tier.credits);
     for (const group of grouped) {
       const entry = ensure(group.credits);
       const count = group._count._all;
@@ -211,8 +215,72 @@ export class AccountsService {
       banned,
       invalid,
       unknown,
+      /** 待定档账号数（额度还没从邮件里定出来） */
+      pending,
       byCredits: [...byCreditsMap.values()].sort((a, b) => a.credits - b.credits),
     };
+  }
+
+  /**
+   * 额度档位分布（只读）。
+   *
+   * 档位 = 账号在导入后由邮箱取件命中额度关键字自动得出的结果，
+   * 后台不提供新增/删除档位，这里只做展示与筛选。
+   */
+  async tiers() {
+    const [grouped, pending] = await Promise.all([
+      this.prisma.account.groupBy({
+        by: ['credits', 'redeemStatus', 'banStatus', 'cardDisabled'],
+        _count: { _all: true },
+      }),
+      this.prisma.account.count({ where: { credits: PENDING_TIER } }),
+    ]);
+
+    const map = new Map<
+      number,
+      {
+        credits: number;
+        label: string;
+        accounts: number;
+        available: number;
+        redeemed: number;
+        banned: number;
+        disabled: number;
+      }
+    >();
+    const ensure = (credits: number) => {
+      if (!map.has(credits)) {
+        map.set(credits, {
+          credits,
+          label: formatTier(credits),
+          accounts: 0,
+          available: 0,
+          redeemed: 0,
+          banned: 0,
+          disabled: 0,
+        });
+      }
+      return map.get(credits)!;
+    };
+
+    for (const group of grouped) {
+      const entry = ensure(group.credits);
+      const count = group._count._all;
+      entry.accounts += count;
+      if (group.redeemStatus === 'redeemed') entry.redeemed += count;
+      if (group.banStatus === 'banned') entry.banned += count;
+      if (group.cardDisabled) entry.disabled += count;
+      const usable =
+        group.redeemStatus === 'unredeemed' &&
+        group.banStatus !== 'banned' &&
+        group.banStatus !== 'invalid' &&
+        !group.cardDisabled &&
+        !isPendingTier(group.credits);
+      if (usable) entry.available += count;
+    }
+
+    const items = [...map.values()].sort((a, b) => a.credits - b.credits);
+    return { items, pending, total: items.reduce((sum, item) => sum + item.accounts, 0) };
   }
 
   async list(query: ListAccountsQuery) {
@@ -263,10 +331,15 @@ export class AccountsService {
   // 导入
   // -------------------------------------------------------------------------
 
+  /**
+   * 批量导入账号。
+   *
+   * 注意：额度不在这里填写 —— 导入的账号一律先落到「待定档」（credits = 0），
+   * 之后由邮箱取件命中额度关键字自动定档（见 refreshStatus 的 credits 目标）。
+   */
   async importAccounts(payload: {
     content?: string;
     files?: Array<{ name?: string; content?: string }>;
-    credits?: number;
     prefix?: string;
     remark?: string;
     source?: string;
@@ -274,11 +347,6 @@ export class AccountsService {
     keyGroups?: number;
     keyLength?: number;
   }) {
-    const credits = Number(payload?.credits);
-    if (!Number.isFinite(credits) || credits <= 0) {
-      bizError('BAD_INPUT', '请先选择或填写账号额度（正整数）');
-    }
-
     const sources: Array<{ name: string; content: string }> = [];
     if (payload?.content && String(payload.content).trim()) {
       sources.push({ name: 'pasted-json', content: String(payload.content) });
@@ -397,7 +465,7 @@ export class AccountsService {
     await this.prisma.batch.create({
       data: {
         batchId,
-        credits: Math.trunc(credits),
+        credits: PENDING_TIER,
         count: 0,
         remark: payload?.remark || null,
         source,
@@ -413,7 +481,7 @@ export class AccountsService {
           data: {
             name: account.name,
             email: account.email || account.mailbox?.email || null,
-            credits: Math.trunc(credits),
+            credits: PENDING_TIER,
             cardKey,
             planType: account.planType || null,
             accountId: account.accountId || null,
@@ -478,7 +546,9 @@ export class AccountsService {
       skipped,
       failed: errors.length,
       cards,
-      credits: Math.trunc(credits),
+      credits: PENDING_TIER,
+      /** 待定档数量（= 本次导入数，额度需取件后才能得出） */
+      pending: imported,
       errors: errors.slice(0, 200),
       samples,
     };
@@ -520,9 +590,11 @@ export class AccountsService {
     const data: Prisma.AccountUpdateInput = {};
 
     if (patch.remark !== undefined) data.remark = patch.remark === null ? null : String(patch.remark);
+    // 兜底通道：额度正常由邮箱取件自动定档，这里只作为「人工纠错」的最后手段保留。
+    // 传 0 可以把账号退回待定档（不再进兑换池）。
     if (patch.credits !== undefined) {
       const credits = Number(patch.credits);
-      if (!Number.isFinite(credits) || credits <= 0) bizError('BAD_INPUT', '额度必须是正整数');
+      if (!Number.isFinite(credits) || credits < 0) bizError('BAD_INPUT', '额度必须是非负整数（0 = 待定档）');
       data.credits = Math.trunc(credits);
     }
     if (patch.banStatus !== undefined) {
@@ -721,11 +793,27 @@ export class AccountsService {
     return null;
   }
 
-  /** 刷新封禁状态：取件 → 扫描封禁关键词 */
-  private async refreshBan(
+  /**
+   * 取件（后台侧）：一次取件同时产出「封禁状态」和「额度档位」。
+   *
+   * 额度只认邮件命中的关键字，命中即写回 `Account.credits`（档位 = 命中 credits ÷ 25）；
+   * 没有命中就保持原值（导入时为 0 = 待定档），不会覆盖已有档位。
+   */
+  private async pickupAccount(
     account: Account & { mailbox?: any },
     options: { maxMessages?: number } = {},
-  ): Promise<{ banStatus: string; banReason: string | null; banKeywords: string[]; error: string | null }> {
+  ): Promise<{
+    /** 取件本身是否成功（凭据失效 / 网络错误 = false） */
+    ok: boolean;
+    banStatus: string;
+    banReason: string | null;
+    banKeywords: string[];
+    /** 本次邮件命中的原始 credits（未换算） */
+    mailCredits: number | null;
+    /** 换算后的档位；null 表示本次没命中 */
+    tier: number | null;
+    error: string | null;
+  }> {
     const credential = this.resolveCredential(account);
     const result = await this.mailbox.pickupOne(credential, {
       maxMessages: options.maxMessages || 10,
@@ -746,7 +834,15 @@ export class AccountsService {
             banCheckedAt: new Date(),
           },
         });
-        return { banStatus: 'invalid', banReason: result.error, banKeywords: [], error: null };
+        return {
+          ok: false,
+          banStatus: 'invalid',
+          banReason: result.error,
+          banKeywords: [],
+          mailCredits: null,
+          tier: null,
+          error: null,
+        };
       }
       // 网络/上游问题：保持原状态
       await this.prisma.account.update({
@@ -754,15 +850,20 @@ export class AccountsService {
         data: { banReason: result.error, banCheckedAt: new Date() },
       });
       return {
+        ok: false,
         banStatus: account.banStatus,
         banReason: account.banReason,
         banKeywords: [],
+        mailCredits: null,
+        tier: null,
         error: result.error,
       };
     }
 
     const banStatus = result.banned ? 'banned' : 'normal';
     const banReason = result.banned ? result.banReason : null;
+    // 命中额度 → 自动定档（待定档 0 表示还没定出来）
+    const tier = tierFromMailCredits(result.credits);
 
     await this.prisma.account.update({
       where: { id: account.id },
@@ -771,6 +872,7 @@ export class AccountsService {
         banReason,
         banKeywords: result.banned ? JSON.stringify(result.banKeywords) : null,
         banCheckedAt: new Date(),
+        ...(tier > PENDING_TIER ? { credits: tier } : {}),
       },
     });
     await this.prisma.pickupLog.create({
@@ -785,7 +887,21 @@ export class AccountsService {
       },
     });
 
-    return { banStatus, banReason, banKeywords: result.banKeywords, error: null };
+    this.logger.log(
+      `取件定档 #${account.id} ${account.name}：邮件命中 ${result.credits ?? '无'} credits → 档位 ${
+        tier > PENDING_TIER ? tier : '待定档'
+      }`,
+    );
+
+    return {
+      ok: true,
+      banStatus,
+      banReason,
+      banKeywords: result.banKeywords,
+      mailCredits: result.credits ?? null,
+      tier: tier > PENDING_TIER ? tier : null,
+      error: null,
+    };
   }
 
   /** 刷新兑换状态：token 是否被使用/失效 */
@@ -852,18 +968,38 @@ export class AccountsService {
     };
   }
 
+  /**
+   * 批量刷新状态。
+   *
+   * targets：
+   *  - `ban`     取件扫描封禁关键词
+   *  - `redeem`  用 refresh_token 判定账号是否已被使用
+   *  - `credits` 取件命中额度关键字 → 自动定档（额度只来自邮件，不接受人工填写）
+   *
+   * `credits` 与 `ban` 共用同一次取件结果（不会重复请求邮箱）。
+   * 传入 `cursor`（上一轮返回的 nextCursor）可以按 id 递增分批推进，
+   * 保证「取件成功但没命中额度」的账号不会被同一轮反复重复取件。
+   */
   async refreshStatus(payload: {
     ids?: number[];
     filter?: AccountFilter;
     targets?: string[];
     limit?: number;
+    /** 只处理 id > cursor 的账号（配合响应里的 nextCursor 循环调用） */
+    cursor?: number;
   }) {
-    const targets = toStringArray(payload?.targets).filter((item) => item === 'ban' || item === 'redeem');
+    const targets = toStringArray(payload?.targets).filter(
+      (item) => item === 'ban' || item === 'redeem' || item === 'credits',
+    );
     const effectiveTargets = targets.length ? targets : ['ban', 'redeem'];
     const limit = Math.min(500, Math.max(1, toPositiveInt(payload?.limit, 100)));
     const ids = (payload?.ids || []).map((id) => Number(id)).filter((id) => Number.isFinite(id));
+    const cursor = Number(payload?.cursor);
+    const hasCursor = Number.isFinite(cursor) && cursor > 0;
+    const needPickup = effectiveTargets.includes('ban') || effectiveTargets.includes('credits');
 
-    const where = ids.length ? { id: { in: ids } } : this.buildWhere(payload?.filter || {});
+    const base = ids.length ? { id: { in: ids } } : this.buildWhere(payload?.filter || {});
+    const where = hasCursor ? { AND: [base, { id: { gt: cursor } }] } : base;
     const accounts = await this.prisma.account.findMany({
       where,
       include: { mailbox: true },
@@ -873,6 +1009,7 @@ export class AccountsService {
 
     const banCounter = { banned: 0, normal: 0, invalid: 0, failed: 0 };
     const redeemCounter = { redeemed: 0, unredeemed: 0, failed: 0 };
+    const creditsCounter = { hit: 0, pending: 0, failed: 0 };
     const items: Array<Record<string, unknown>> = [];
 
     await mapWithConcurrency(accounts, Math.min(4, accounts.length || 1), async (account) => {
@@ -881,27 +1018,53 @@ export class AccountsService {
         name: account.name,
         banStatus: account.banStatus,
         banReason: account.banReason,
+        credits: account.credits,
+        creditStatus: isPendingTier(account.credits) ? 'pending' : 'ready',
         redeemStatus: account.redeemStatus,
         redeemedAt: account.redeemedAt ? account.redeemedAt.toISOString() : null,
         error: null,
       };
       const errors: string[] = [];
 
-      if (effectiveTargets.includes('ban')) {
+      if (needPickup) {
         try {
-          const ban = await this.refreshBan(account);
-          entry.banStatus = ban.banStatus;
-          entry.banReason = ban.banReason;
-          entry.banKeywords = ban.banKeywords;
-          if (ban.error) {
-            errors.push(ban.error);
-            banCounter.failed++;
-          } else if (ban.banStatus === 'banned') banCounter.banned++;
-          else if (ban.banStatus === 'invalid') banCounter.invalid++;
-          else banCounter.normal++;
+          const pickup = await this.pickupAccount(account);
+          if (effectiveTargets.includes('ban')) {
+            entry.banStatus = pickup.banStatus;
+            entry.banReason = pickup.banReason;
+            entry.banKeywords = pickup.banKeywords;
+            if (pickup.error) {
+              errors.push(pickup.error);
+              banCounter.failed++;
+            } else if (pickup.banStatus === 'banned') banCounter.banned++;
+            else if (pickup.banStatus === 'invalid') banCounter.invalid++;
+            else banCounter.normal++;
+          } else if (pickup.error) {
+            errors.push(pickup.error);
+          }
+
+          if (effectiveTargets.includes('credits')) {
+            if (pickup.tier !== null) {
+              creditsCounter.hit++;
+              entry.credits = pickup.tier;
+              entry.creditStatus = 'ready';
+              entry.mailCredits = pickup.mailCredits;
+            } else if (!pickup.ok) {
+              // 取件本身失败（凭据失效 / 网络）：不是「没收到额度邮件」，单独计数
+              creditsCounter.failed++;
+              entry.credits = account.credits;
+              entry.creditStatus = isPendingTier(account.credits) ? 'pending' : 'ready';
+            } else {
+              creditsCounter.pending++;
+              entry.credits = account.credits;
+              entry.creditStatus = isPendingTier(account.credits) ? 'pending' : 'ready';
+            }
+          }
         } catch (error) {
-          errors.push(error instanceof Error ? error.message : '刷新封禁状态失败');
-          banCounter.failed++;
+          const reason = error instanceof Error ? error.message : '取件失败';
+          errors.push(reason);
+          if (effectiveTargets.includes('ban')) banCounter.failed++;
+          if (effectiveTargets.includes('credits')) creditsCounter.failed++;
         }
       }
 
@@ -926,12 +1089,16 @@ export class AccountsService {
     });
 
     items.sort((a, b) => Number(a.id) - Number(b.id));
+    const lastId = accounts.length ? accounts[accounts.length - 1].id : null;
 
     return {
       requested: ids.length || accounts.length,
       processed: accounts.length,
-      ban: banCounter,
-      redeem: redeemCounter,
+      /** 下一轮的 cursor；null 表示这批已经处理完 */
+      nextCursor: hasCursor || !ids.length ? lastId : null,
+      ban: effectiveTargets.includes('ban') ? banCounter : undefined,
+      redeem: effectiveTargets.includes('redeem') ? redeemCounter : undefined,
+      credits: effectiveTargets.includes('credits') ? creditsCounter : undefined,
       items,
     };
   }
@@ -978,6 +1145,8 @@ export class AccountsService {
         },
       });
       if (pickup.ok) {
+        // 取件即定档：邮件命中额度关键字 → 写回账号档位（0 表示仍未命中）
+        const tier = tierFromMailCredits(pickup.credits);
         await this.prisma.account.update({
           where: { id: account.id },
           data: {
@@ -985,6 +1154,7 @@ export class AccountsService {
             banReason: pickup.banned ? pickup.banReason : null,
             banKeywords: pickup.banned ? JSON.stringify(pickup.banKeywords) : null,
             banCheckedAt: new Date(),
+            ...(tier > PENDING_TIER ? { credits: tier } : {}),
           },
         });
       }
@@ -1026,6 +1196,7 @@ export class AccountsService {
         id: row.id,
         cardKey: row.cardKey,
         credits: row.credits,
+        creditStatus: row.creditStatus,
         accountId: row.id,
         accountName: row.name,
         status: row.cardDisabled ? 'disabled' : 'active',
@@ -1082,7 +1253,7 @@ export class AccountsService {
   // -------------------------------------------------------------------------
 
   async overview() {
-    const [summary, batches, trendRaw, tiers] = await Promise.all([
+    const [summary, batches, trendRaw, tierStats] = await Promise.all([
       this.computeSummary({}),
       this.prisma.batch.findMany({ orderBy: { createdAt: 'desc' }, take: 30 }),
       this.prisma.redeemLog.groupBy({
@@ -1090,7 +1261,7 @@ export class AccountsService {
         where: { success: true, createdAt: { gte: new Date(Date.now() - 14 * 86400000) } },
         _count: { _all: true },
       }),
-      this.prisma.creditTier.findMany({ orderBy: { sort: 'asc' } }),
+      this.tiers(),
     ]);
 
     const trendMap = new Map<string, number>();
@@ -1111,6 +1282,7 @@ export class AccountsService {
         banned: summary.banned,
         invalid: summary.invalid,
         unknown: summary.unknown,
+        pending: summary.pending,
       },
       cards: {
         total: summary.total,
@@ -1127,7 +1299,8 @@ export class AccountsService {
       })),
       redeemTrend: [...trendMap.entries()].map(([date, count]) => ({ date, count })),
       byCredits: summary.byCredits,
-      tiers: tiers.map((tier) => ({ id: tier.id, credits: tier.credits, label: tier.label, sort: tier.sort })),
+      tiers: tierStats.items,
+      pending: tierStats.pending,
     };
   }
 }

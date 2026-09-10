@@ -4,8 +4,6 @@ import { PrismaService } from './prisma/prisma.service';
 import { DEFAULT_SETTINGS } from './settings/settings.service';
 import { SCHEMA_STATEMENTS } from './prisma/schema-statements';
 
-const DEFAULT_TIERS = [5, 10, 20, 50, 100, 200, 500, 1000];
-
 @Injectable()
 export class SeedService implements OnModuleInit {
   private readonly logger = new Logger('Seed');
@@ -15,7 +13,6 @@ export class SeedService implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     await this.ensureSchema();
     await this.ensureAdmin();
-    await this.ensureTiers();
     await this.ensureSettings();
   }
 
@@ -50,19 +47,6 @@ export class SeedService implements OnModuleInit {
       },
     });
     this.logger.log(`已创建默认后台账号：${username} / ${password}（请尽快修改密码）`);
-  }
-
-  private async ensureTiers(): Promise<void> {
-    const count = await this.prisma.creditTier.count();
-    if (count > 0) return;
-    await this.prisma.creditTier.createMany({
-      data: DEFAULT_TIERS.map((credits, index) => ({
-        credits,
-        label: `${credits} 额度`,
-        sort: index,
-      })),
-    });
-    this.logger.log(`已初始化额度档位：${DEFAULT_TIERS.join(', ')}`);
   }
 
   private async ensureSettings(): Promise<void> {

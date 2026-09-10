@@ -1040,6 +1040,18 @@ a:hover {
   margin-top: 14px;
 }
 
+/* 导入弹窗里的说明块（额度来源提示） */
+.import-note {
+  margin-top: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #f7faf6;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--faint);
+}
+
 .import-file-row {
   display: flex;
   align-items: center;
