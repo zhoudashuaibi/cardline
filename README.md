@@ -204,6 +204,7 @@ SCOPE        = IMAP.AccessAsUser.All + Mail.ReadWrite + offline_access
 
 - 用 `client_id` + `refresh_token` 直连微软换 token，再读 Outlook 收件箱
 - 并发 4，单账号超时 30s，最多取最新 10 封（可配）
+- **一次取多个邮箱**：结果区顶部有邮箱切换条（`共 N 个邮箱 · 当前第 M 个`），左侧邮件列表只显示当前邮箱的邮件，点邮箱名即切换；只有一个邮箱时不显示切换条
 - 智能提取：验证码（多语言上下文锚点）、额度（`we've added N credits` / `添加了 N 额度` / `N クレジット` / `N créditos` 等，余额 = credits ÷ 25）、封禁关键词
 - 邮件正文经服务端净化（去 `<script>`、`on*` 事件、非法 `src`/`href`）后放进 `sandbox=""` iframe 渲染
 

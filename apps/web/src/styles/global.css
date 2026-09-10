@@ -591,6 +591,94 @@ a:hover {
   align-items: start;
 }
 
+/* 多邮箱切换条：一次取多个邮箱时，靠这里切换左侧列表显示的邮箱 */
+.mail-accounts {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.mail-accounts__hint {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.mail-accounts__list {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 3px;
+}
+
+.mail-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  max-width: 280px;
+  padding: 4px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ink-soft);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.mail-account:hover {
+  border-color: #cfd6cf;
+  background: #fbfcfa;
+}
+
+.mail-account--active {
+  border-color: var(--brand);
+  background: #f5f8f5;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.mail-account__index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--line-soft);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.mail-account--active .mail-account__index {
+  background: var(--brand);
+  color: #fff;
+}
+
+.mail-account__email {
+  min-width: 0;
+  max-width: 180px;
+}
+
+.mail-account .ant-tag {
+  margin: 0;
+  font-size: 10px;
+  line-height: 15px;
+  padding: 0 5px;
+}
+
 .mail-list {
   background: var(--surface);
   border: 1px solid var(--line);

@@ -123,6 +123,29 @@ export default function MailBrowser({
     });
   }, [filtered]);
 
+  /** 当前邮箱在筛选结果里的位次（-1 表示未选中） */
+  const activeIndex = useMemo(
+    () => (selection ? filtered.findIndex((item) => item.key === selection.key) : -1),
+    [filtered, selection],
+  );
+
+  /**
+   * 左侧只渲染当前邮箱的邮件。
+   *
+   * 一次取多个邮箱时，若把所有邮箱的邮件堆在同一个列表里，第一个邮箱的邮件就会占满
+   * 整个滚动区，其余邮箱全被挤到下面看不见 —— 所以多邮箱时用上方切换条切换。
+   */
+  const visibleGroups = useMemo(
+    () => (selection ? filtered.filter((item) => item.key === selection.key) : filtered),
+    [filtered, selection],
+  );
+
+  /** 切换到某个邮箱：默认选中它最新的一封邮件 */
+  const selectAccount = (result: PickupResult): void => {
+    const firstMessage = result.messages[0];
+    setSelection({ key: result.key, messageId: firstMessage ? firstMessage.id : null });
+  };
+
   const activeResult = useMemo(() => {
     if (!selection) return null;
     return (
@@ -183,6 +206,36 @@ export default function MailBrowser({
         />
       </div>
 
+      {filtered.length > 1 ? (
+        <div className="mail-accounts">
+          <span className="mail-accounts__hint">
+            共 {filtered.length} 个邮箱
+            {activeIndex >= 0 ? ` · 当前第 ${activeIndex + 1} 个` : ''} · 点邮箱名切换
+          </span>
+          <div className="mail-accounts__list cardline-scroll">
+            {filtered.map((result, index) => (
+              <button
+                type="button"
+                key={result.key}
+                title={result.email || result.key}
+                className={`mail-account${
+                  result.key === selection?.key ? ' mail-account--active' : ''
+                }`}
+                onClick={() => selectAccount(result)}
+              >
+                <span className="mail-account__index">{index + 1}</span>
+                <span className="mail-account__email ellipsis">{result.email || result.key}</span>
+                {!result.ok ? <Tag color="error">失败</Tag> : null}
+                {result.banned ? <Tag color="error">已封禁</Tag> : null}
+                {typeof result.credits === 'number' && result.credits > 0 ? (
+                  <Tag color="blue">+{result.credits}</Tag>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="mail-browser__grid">
         <Spin spinning={loading} tip="加载中…">
           <div className="mail-list cardline-scroll" style={{ maxHeight: listHeight }}>
@@ -194,7 +247,7 @@ export default function MailBrowser({
                 />
               </div>
             ) : (
-              filtered.map((result) => (
+              visibleGroups.map((result) => (
                 <div className="mail-group" key={result.key}>
                   <div className="mail-group__head">
                     <span className="mail-group__email ellipsis" title={result.email || result.key}>
