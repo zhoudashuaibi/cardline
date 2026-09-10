@@ -10,18 +10,29 @@
 
 ---
 
-## 一、Docker 一键部署（推荐）
+## 一、Docker 部署
+
+镜像由 **GitHub Actions 构建并推送到 GHCR**：`ghcr.io/zhoudashuaibi/cardline-server` 和 `ghcr.io/zhoudashuaibi/cardline-web`。推送代码到 GitHub 即自动发布（默认分支打 `latest`，同时打分支名、tag、`sha-xxxxxxx` 标签）。
+
+### 方式 A：服务器只拉镜像运行（推荐）
 
 ```bash
 # 1. 准备环境变量（可选，不建也能跑）
 cp .env.docker.example .env
 
-# 2. 构建并启动
-docker compose up -d --build
+# 2. 登录 GHCR（镜像若已设为 public 可跳过这步）
+#    PAT 需要勾选 read:packages 权限
+echo <你的PAT> | docker login ghcr.io -u zhoudashuaibi --password-stdin
 
-# 3. 查看状态
-docker compose ps
-docker compose logs -f
+# 3. 拉取并启动（--no-build 确保只拉取、不在服务器上重新构建）
+docker compose pull
+docker compose up -d --no-build
+```
+
+### 方式 B：源码本地构建
+
+```bash
+docker compose up -d --build     # 构建 + 启动
 ```
 
 启动后访问：
@@ -37,11 +48,14 @@ docker compose logs -f
 常用命令：
 
 ```bash
-npm run docker:up        # docker compose up -d
+docker compose pull      # 拉取 GHCR 上的最新镜像
+docker compose up -d     # 启动（本地无镜像时会构建）
 npm run docker:logs      # 跟随日志
 npm run docker:down      # 停止
-npm run docker:rebuild   # 无缓存重建
+npm run docker:rebuild   # 本机无缓存重建
 ```
+
+> 注意：`docker compose pull` 只能拉取**已经推送到仓库**的镜像。本项目默认走 GHCR，所以拉取前要确保 CI 已经跑完推送成功；如果镜像还是私有包，必须先 `docker login ghcr.io`，否则会报 `denied` / `unauthorized`。
 
 ### 部署说明
 
@@ -51,14 +65,15 @@ npm run docker:rebuild   # 无缓存重建
 - **后端地址可配**：nginx 通过 `CARDLINE_API_UPSTREAM`（默认 `server:3000`）反代，改成 `host.docker.internal:3000` 之类即可指向外部后端。
 - **备份**：`docker run --rm -v cardline-data:/data -v %cd%:/backup alpine tar czf /backup/cardline-backup.tar.gz -C /data .`
 - **改端口**：`.env` 里设 `WEB_PORT=80`。
+- **换镜像来源**：`.env` 里设 `CARDLINE_REGISTRY`（默认 `ghcr.io/zhoudashuaibi`）与 `CARDLINE_TAG`（默认 `latest`，生产建议固定成 `sha-xxxxxxx`）。
 - **直接暴露 API**：取消 `docker-compose.yml` 中 `server.ports` 的注释。
 
 ### 镜像体积
 
 | 镜像 | 大小 | 说明 |
 | --- | --- | --- |
-| `cardline-server` | ~646 MB | node:22-bookworm-slim + NestJS + Prisma 引擎 |
-| `cardline-web` | ~75 MB | nginx:alpine + 静态资源 |
+| `ghcr.io/zhoudashuaibi/cardline-server` | ~646 MB | node:22-bookworm-slim + NestJS + Prisma 引擎 |
+| `ghcr.io/zhoudashuaibi/cardline-web` | ~75 MB | nginx:alpine + 静态资源 |
 
 ### 单容器运行（不用 compose）
 
@@ -170,7 +185,7 @@ SCOPE        = IMAP.AccessAsUser.All + Mail.ReadWrite + offline_access
 
 ```
 卡密兑换/
-├── .github/workflows/ci.yml        # CI：构建 + 测试 + Docker 镜像
+├── .github/workflows/ci.yml        # CI：构建 + 测试 + 推送 Docker 镜像到 GHCR
 ├── apps/
 │   ├── server/                     # NestJS 后端
 │   │   ├── prisma/schema.prisma    # 数据模型
@@ -220,6 +235,15 @@ A：兑换状态依赖 `refresh_token` 向 OpenAI 换 token 来判定；如果�
 
 **Q：Docker 里改了 `.env` 不生效？**
 A：`.env` 是 compose 的变量来源，改完执行 `docker compose up -d`（必要时 `--force-recreate`）。
+
+**Q：`docker compose pull` 报 `not found`？**
+A：说明要去拉的那个名字在仓库里不存在。跑 `docker compose config | findstr image` 确认 compose 实际解析出的完整镜像名（应形如 `ghcr.io/zhoudashuaibi/cardline-server:latest`）。如果名字不带仓库前缀，Docker 会默认去 `docker.io/library/` 找，必然 `not found`。
+
+**Q：`docker compose pull` 报 `denied` / `unauthorized`？**
+A：GHCR 上的包默认是私有的。要么 `docker login ghcr.io -u <用户名> -p <带 read:packages 的 PAT>`，要么到 GitHub → 你的 Packages → 该包 → Package settings → Change visibility 改成 public。
+
+**Q：CI 里 Docker 那步成功了，为什么还是拉不到镜像？**
+A：看 workflow 的 `push` 参数。`push: false` 只在 runner 上构建验证，job 结束镜像就随 runner 销毁，不会发布到任何仓库；必须 `push: true` 且先 `docker/login-action` 登录，镜像才会有地方可拉。
 
 **Q：想换数据库？**
 A：改 `apps/server/prisma/schema.prisma` 的 `datasource`（如 `mysql`），配置 `DATABASE_URL`，然后 `npm run db:push`。注意：SQLite 专用的自举建表语句只在 SQLite 下生效，换库后请用 Prisma 迁移。

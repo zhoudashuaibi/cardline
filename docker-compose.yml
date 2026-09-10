@@ -5,7 +5,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.server
-    image: cardline-server:latest
+    # 默认指向 GitHub Actions 推送到 GHCR 的镜像；改 CARDLINE_REGISTRY 可换成别的仓库
+    image: "${CARDLINE_REGISTRY:-ghcr.io/zhoudashuaibi}/cardline-server:${CARDLINE_TAG:-latest}"
     container_name: cardline-server
     restart: unless-stopped
     environment:
@@ -35,7 +36,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.web
-    image: cardline-web:latest
+    image: "${CARDLINE_REGISTRY:-ghcr.io/zhoudashuaibi}/cardline-web:${CARDLINE_TAG:-latest}"
     container_name: cardline-web
     restart: unless-stopped
     depends_on:

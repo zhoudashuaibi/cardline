@@ -40,9 +40,22 @@ jobs:
         run: npm run build --workspace @cardline/web
 
   docker:
-    name: Docker 镜像构建
+    name: Docker 镜像构建并推送 GHCR
     runs-on: ubuntu-latest
     needs: build-and-test
+
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: server
+            dockerfile: docker/Dockerfile.server
+          - name: web
+            dockerfile: docker/Dockerfile.web
 
     steps:
       - name: 检出代码
@@ -51,20 +64,34 @@ jobs:
       - name: 设置 Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: 构建后端镜像
-        uses: docker/build-push-action@v6
+      # PR 来自 fork 时 GITHUB_TOKEN 没有 packages:write，跳过登录，只做构建验证
+      - name: 登录 GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
         with:
-          context: .
-          file: docker/Dockerfile.server
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 构建前端镜像
+      - name: 计算镜像标签
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/cardline-${{ matrix.name }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=sha,format=short
+
+      - name: 构建 cardline-${{ matrix.name }} 镜像
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile.web
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          file: ${{ matrix.dockerfile }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
