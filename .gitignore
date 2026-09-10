@@ -35,6 +35,7 @@ samples/*.local.json
 .tmp-*
 _ref_converter/
 *.local
+.git-commit-msg.txt
 
 # 编辑器
 .vscode/
