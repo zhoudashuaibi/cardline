@@ -40,9 +40,11 @@ docker compose up -d --build     # 构建 + 启动
 
 | 地址 | 说明 |
 | --- | --- |
-| http://localhost:8080/ | 前台卡密兑换页 |
-| http://localhost:8080/pickup | 前台邮箱取件页 |
-| http://localhost:8080/admin | 后台管理系统 |
+| http://localhost:3010/ | 前台卡密兑换页 |
+| http://localhost:3010/pickup | 前台邮箱取件页 |
+| http://localhost:3010/admin | 后台管理系统 |
+
+> 部署到服务器时把 `localhost` 换成服务器 IP（或域名）。端口默认 **3010**，要改就在 `.env` 里设 `WEB_PORT`。
 
 默认后台账号 **admin / admin123**（首次启动自动创建，请在 `.env` 里改 `ADMIN_PASSWORD` 后重建，或登录后到「系统设置 → 修改密码」修改）。
 
@@ -65,7 +67,7 @@ npm run docker:rebuild   # 本机无缓存重建
 - **表结构自动初始化**：`server` 容器启动时执行 `apps/server/scripts/bootstrap-db.js`（幂等 `CREATE TABLE IF NOT EXISTS`），无需 Prisma CLI，也不需要手工迁移。
 - **后端地址可配**：nginx 通过 `CARDLINE_API_UPSTREAM`（默认 `server:3000`）反代，改成 `host.docker.internal:3000` 之类即可指向外部后端。
 - **备份**：`docker run --rm -v cardline-data:/data -v %cd%:/backup alpine tar czf /backup/cardline-backup.tar.gz -C /data .`
-- **改端口**：`.env` 里设 `WEB_PORT=80`。
+- **改端口**：`.env` 里设 `WEB_PORT`（默认 `3010`，例如 `WEB_PORT=80` 走标准 HTTP 端口）。
 - **换镜像来源**：`.env` 里设 `CARDLINE_REGISTRY`（默认 `ghcr.io/zhoudashuaibi`）与 `CARDLINE_TAG`（默认 `latest`，生产建议固定成 `sha-xxxxxxx`）。
 - **直接暴露 API**：取消 `docker-compose.yml` 中 `server.ports` 的注释。
 
@@ -85,7 +87,7 @@ docker run -d --name cardline-server -p 3000:3000 \
   -v cardline-data:/data cardline-server
 
 docker build -f docker/Dockerfile.web -t cardline-web .
-docker run -d --name cardline-web -p 8080:80 --link cardline-server:server cardline-web
+docker run -d --name cardline-web -p 3010:80 --link cardline-server:server cardline-web
 ```
 
 ---

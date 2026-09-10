@@ -43,7 +43,7 @@ services:
       server:
         condition: service_healthy
     ports:
-      - "${WEB_PORT:-8080}:80"
+      - "${WEB_PORT:-3010}:80"
     environment:
       TZ: "${TZ:-Asia/Shanghai}"
       # nginx 反代的后端地址（默认对应下面的 server 服务）
