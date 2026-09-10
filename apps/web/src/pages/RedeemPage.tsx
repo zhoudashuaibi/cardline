@@ -103,12 +103,12 @@ export default function RedeemPage() {
   const formatOptions = useMemo(() => {
     const formats = meta?.formats ?? [];
     if (formats.length > 0) {
-      return formats.map((item) => ({ value: item.value, label: item.label }));
+      return formats.map((item) => ({ value: item.value, label: item.label, ext: item.ext }));
     }
     return [
-      { value: 'sub2api' as DeliverFormat, label: 'sub2api' },
-      { value: 'cpa' as DeliverFormat, label: 'CPA' },
-      { value: 'email' as DeliverFormat, label: '邮箱 TXT' },
+      { value: 'sub2api' as DeliverFormat, label: 'sub2api', ext: 'json' },
+      { value: 'cpa' as DeliverFormat, label: 'CPA', ext: 'json' },
+      { value: 'email' as DeliverFormat, label: '邮箱 TXT', ext: 'txt' },
     ];
   }, [meta]);
 
@@ -158,22 +158,20 @@ export default function RedeemPage() {
   }, []);
 
   const downloadAll = useCallback(() => {
-    const succeeded = results.filter((item) => item.ok && item.content);
-    if (succeeded.length === 0) {
+    if (!response?.mergedContent) {
       void message.warning('当前没有可下载的成功结果');
       return;
     }
 
-    const body = succeeded
-      .map((item) =>
-        [`===== ${item.card}${item.filename ? ` · ${item.filename}` : ''} =====`, item.content ?? ''].join(
-          '\n',
-        ),
-      )
-      .join('\n\n');
+    const ext =
+      formatOptions.find((item) => item.value === response.format)?.ext ??
+      (response.format === 'email' ? 'txt' : 'json');
 
-    downloadText(body, `cardline-delivery-${timestampSuffix()}.txt`);
-  }, [message, results]);
+    downloadText(
+      response.mergedContent,
+      `cardline-${response.format}-${timestampSuffix()}.${ext}`,
+    );
+  }, [formatOptions, message, response]);
 
   const downloadManifest = useCallback(() => {
     if (!response) {
@@ -211,7 +209,7 @@ export default function RedeemPage() {
   }, []);
 
   const hasResults = results.length > 0;
-  const hasSuccess = results.some((item) => item.ok && item.content);
+  const hasMerged = Boolean(response?.mergedContent);
 
   return (
     <div className="page">
@@ -352,8 +350,8 @@ export default function RedeemPage() {
               </div>
 
               <div className="console__ghost-row">
-                <Button size="small" disabled={!hasSuccess} onClick={downloadAll}>
-                  一键下载全部
+                <Button size="small" disabled={!hasMerged} onClick={downloadAll}>
+                  合并下载全部
                 </Button>
                 <Button size="small" disabled={!hasResults} onClick={downloadManifest}>
                   结果清单

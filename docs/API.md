@@ -138,6 +138,7 @@ HTTP 4xx/5xx，body：
       "accounts": []
     }
   ],
+  "mergedContent": "{\n  \"type\": \"sub2api-data\", ...\n}",
   "summary": {
     "total": 2,
     "success": 1,
@@ -149,6 +150,30 @@ HTTP 4xx/5xx，body：
 ```
 
 失败 `code` 取值：`CARD_INVALID` 卡密不存在 / `NO_STOCK` 该额度已无可用账号 / `CARD_DISABLED` 卡密已停用 / `CREDITS_PENDING` 账号额度待定（邮箱取件还没命中额度关键字，不进兑换池）。
+
+#### `mergedContent` —— 「合并下载全部」
+
+各卡的 `content` 是**每张卡一份**的独立文档，首尾相接并不是合法 JSON。`mergedContent` 是服务端把所有**成功结果**的账号合并成的**单份**文档，供前台「合并下载全部」使用；失败卡密不写入，全部失败时为 `null`。
+
+| 格式 | 合并文件结构 |
+| --- | --- |
+| `sub2api` | `{ type: "sub2api-data", version, exported_at, proxies: [], accounts: [所有账号] }` |
+| `cpa` | `{ accounts: [所有账号], exported_at, proxies: [] }`（对齐 `cpa_格式参考.json`；该参考里的 `x_revive_manifest` 含 Ed25519 签名，本服务没有签名私钥，故省略而不写无效签名） |
+| `email` | 所有卡密的四段式凭据行直接拼接，不带任何分隔标题 |
+
+合并文件可被本服务原样再导入（`POST /api/admin/accounts/import`）。
+
+#### 交付产物里的 `extra`（含 2FA）
+
+导入时账号的 `extra`（`auth_provider`、`privacy_mode`、`openai_*`、`two_factor_enabled` / `two_factor_status` / `two_factor_error` 等）存在数据库 `rawJson` 里，交付时按格式回填：
+
+| 格式 | `extra` 位置 | 2FA |
+| --- | --- | --- |
+| `sub2api` | 账号对象的 `extra`（原字段原样 + 服务端补充的 `email` / `email_key` / `name` / `mailbox_*` / `source`） | 标记在 `extra.two_factor_*`；TOTP **密钥**在 `notes.two_factor.secret` |
+| `cpa` | 账号对象的 `extra`（仅原字段原样，不注入服务端补充键） | 只有 `extra.two_factor_*` 标记；CPA 无 `notes`，**不含** TOTP 密钥 |
+| `email` | 无 | 无（只有四段式凭据行） |
+
+`extra` 的空串字段（如 `two_factor_error: ""`）按原样保留，保证交付文件与导入文件逐字段一致。来源没有 `extra` 时产物不写该键；CPA 的 `extra` 键集合与来源完全一致（含来源里本来就有的 `mailbox_*`）。
 
 ### 1.3 `POST /api/public/pickup/resolve`
 

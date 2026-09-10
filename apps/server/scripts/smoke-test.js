@@ -245,10 +245,21 @@ async function main() {
         const notes = JSON.parse(account.notes);
         assert(Boolean(notes.mailbox?.refresh_token), 'notes.mailbox.refresh_token 存在');
         assert(Boolean(notes.mailbox?.source_line), 'notes.mailbox.source_line 存在');
+        assert(Boolean(notes.two_factor?.secret), 'notes.two_factor.secret（2FA 密钥）保留', notes.two_factor?.secret ? '有' : '缺');
+        assert(account.extra?.two_factor_status === 'enabled', 'extra.two_factor_status 保留', JSON.stringify(account.extra?.two_factor_status));
+        assert(account.extra?.two_factor_enabled === true, 'extra.two_factor_enabled 保留');
+        assert('two_factor_error' in (account.extra || {}), 'extra 空串字段也原样保留', JSON.stringify(Object.keys(account.extra || {})));
+        assert(Boolean(account.extra?.auth_provider), 'extra.auth_provider 保留');
+        assert(account.extra?.privacy_mode === 'training_off', 'extra.privacy_mode 保留');
+        assert(account.rate_multiplier === 1, 'rate_multiplier 不丢', String(account.rate_multiplier));
       } else {
         assert(parsed.type === 'codex', 'CPA 文档 type=codex');
         assert(Boolean(parsed.access_token), 'CPA access_token 存在');
         assert(parsed.id_token?.split('.').length === 3, 'CPA id_token 为三段式 JWT');
+        assert(parsed.extra?.two_factor_status === 'enabled', 'CPA extra.two_factor_status 保留', JSON.stringify(parsed.extra?.two_factor_status));
+        assert(parsed.extra?.two_factor_enabled === true, 'CPA extra.two_factor_enabled 保留');
+        assert(parsed.extra?.auth_provider !== undefined, 'CPA extra 其余字段一并透传');
+        assert(parsed.notes === undefined, 'CPA 不带 notes（TOTP 密钥不外带）');
       }
     }
   }
@@ -265,6 +276,15 @@ async function main() {
     format: 'cpa',
   });
   assert(mixed.json?.summary?.success === 1 && mixed.json?.summary?.failed === 1, '成功/失败结果分开统计');
+
+  // 合并下载：一张文件装下所有成功账号，失败卡密不写入
+  const merged = JSON.parse(mixed.json?.mergedContent ?? 'null');
+  assert(Array.isArray(merged?.accounts), 'CPA 合并文件为 accounts 包装结构', JSON.stringify(Object.keys(merged ?? {})));
+  assert(merged.accounts.length === 1, '只合并成功结果', `accounts=${merged?.accounts?.length}`);
+  assert(Boolean(merged.exported_at) && Array.isArray(merged.proxies), '合并文件带 exported_at / proxies');
+
+  const noSuccess = await call('POST', '/public/redeem', { cards: ['CARD-AAAAA-BBBBB-CCCCC'], format: 'cpa' });
+  assert(noSuccess.json?.mergedContent === null, '全部失败时不给合并文件');
 
   // -------------------------------------------------------------------------
   console.log('\n[7] 前台取件：解析');

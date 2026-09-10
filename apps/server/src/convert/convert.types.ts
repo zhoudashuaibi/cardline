@@ -78,6 +78,23 @@ export interface CpaAccount {
   last_refresh?: string;
   expired?: string;
   disabled?: boolean;
+  /**
+   * 原样透传导入时的附加字段（含 `two_factor_enabled` / `two_factor_status` / `two_factor_error`
+   * 等 2FA 标记），对齐 `cpa_格式参考.json` 里的 `extra`。
+   *
+   * 注意：TOTP 密钥本体在 sub2api 的 `notes.two_factor.secret` 里，CPA 不带 `notes`，故不包含密钥。
+   */
+  extra?: Record<string, unknown>;
+}
+
+/**
+ * CPA 批量文档：多张卡密的账号合并进同一份文件时的包装结构。
+ * 对齐 `cpa_格式参考.json`（`x_revive_manifest` 含签名，无法伪造故省略）。
+ */
+export interface CpaBatchDocument {
+  accounts: CpaAccount[];
+  exported_at: string;
+  proxies: unknown[];
 }
 
 export interface ConvertedItem {

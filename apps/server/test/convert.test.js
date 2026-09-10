@@ -9,6 +9,13 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const { ConvertService } = require(path.join(__dirname, '..', 'dist', 'convert', 'convert.service.js'));
+const { readSub2ApiPassthrough } = require(path.join(
+  __dirname,
+  '..',
+  'dist',
+  'convert',
+  'convert.service.js',
+));
 
 const service = new ConvertService();
 
@@ -289,4 +296,194 @@ test('脱敏样例 samples/cpa.sample.json 可以被解析', (t) => {
   assert.ok(result.items.length > 0, '脱敏 CPA 样例应能解析出账号');
   assert.equal(result.items[0].account.email, 'demo.user@outlook.com');
   assert.equal(result.items[0].account.planType, 'plus');
+});
+
+test('合并下载：多张卡密的账号合成一份 accounts 包装文档', () => {  // 模拟「批量下载全部」：3 张卡密，每张交付 1 个账号
+  const parsed = service.parseAccounts(JSON.stringify(sub2apiSample()), 'sample.json');
+  const perCard = parsed.items.map((item) => item.account);
+  const all = [...perCard, ...perCard, ...perCard];
+  assert.equal(all.length, 3);
+
+  // sub2api：结构与单卡一致，账号累积到同一个数组
+  const sub2api = JSON.parse(service.buildMergedContent('sub2api', all));
+  assert.equal(sub2api.type, 'sub2api-data');
+  assert.equal(sub2api.version, 1);
+  assert.ok(Array.isArray(sub2api.proxies), 'proxies 应为数组');
+  assert.equal(sub2api.accounts.length, 3, '三张卡密的账号应在同一个 accounts 数组里');
+  assert.ok(sub2api.exported_at, 'exported_at 应存在');
+  assert.ok(sub2api.accounts[0].credentials?.access_token, 'credentials.access_token 不应丢');
+
+  // CPA：批量必须是 accounts 包装对象（不是数组、也不是多份文档相接）
+  const cpaText = service.buildMergedContent('cpa', all);
+  const cpa = JSON.parse(cpaText);
+  assert.equal(Array.isArray(cpa), false, 'CPA 合并文档应为包装对象');
+  assert.equal(cpa.accounts.length, 3);
+  assert.ok(cpa.exported_at, 'exported_at 应存在');
+  assert.ok(Array.isArray(cpa.proxies), 'proxies 应为数组');
+  for (const account of cpa.accounts) assert.equal(account.type, 'codex');
+  assert.equal(Object.prototype.hasOwnProperty.call(cpa, 'x_revive_manifest'), false, '无法签名的清单不应写入');
+
+  // 合并后的文件必须能原样再导入（否则「一份文件」没有意义）
+  const reimportedSub2Api = service.parseAccounts(service.buildMergedContent('sub2api', all), 'merged.json');
+  assert.equal(reimportedSub2Api.issues.length, 0, JSON.stringify(reimportedSub2Api.issues.slice(0, 3)));
+  assert.equal(reimportedSub2Api.items.length, 3);
+  const reimportedCpa = service.parseAccounts(cpaText, 'merged-cpa.json');
+  assert.equal(reimportedCpa.issues.length, 0, JSON.stringify(reimportedCpa.issues.slice(0, 3)));
+  assert.equal(reimportedCpa.items.length, 3);
+
+  // email：直接拼行，不带 ===== 卡密 ===== 之类的分隔标题
+  const emailText = service.buildMergedContent('email', all);
+  assert.equal(emailText.includes('====='), false, '邮箱 TXT 不应带分隔标题');
+  assert.equal(emailText.trim().split('\n').length, 3);
+  for (const line of emailText.trim().split('\n')) {
+    assert.ok(line.split('----').length >= 4, `凭据行异常：${line.slice(0, 60)}`);
+  }
+});
+
+test('交付时保留 extra（含 2FA 标记）与 concurrency / rate_multiplier / group_ids', () => {
+  const sample = sub2apiSample();
+  sample.accounts[0].concurrency = 5;
+  sample.accounts[0].priority = 3;
+  sample.accounts[0].rate_multiplier = 2;
+  sample.accounts[0].group_ids = [4, 7];
+  sample.accounts[0].extra = {
+    auth_provider: 'chatgpt2api',
+    chatgpt_web_message_error: '',
+    chatgpt_web_message_status: '',
+    mailbox_outlook_email: 'user@outlook.com',
+    privacy_mode: 'training_off',
+    two_factor_enabled: true,
+    two_factor_error: '',
+    two_factor_status: 'enabled',
+  };
+
+  const { items } = service.parseAccounts(JSON.stringify(sample), 'sample.json');
+  const out = JSON.parse(service.buildDeliverContent('sub2api', items.map((i) => i.account)))
+    .accounts[0];
+
+  assert.equal(out.extra.two_factor_enabled, true, '2FA 开关应保留');
+  assert.equal(out.extra.two_factor_status, 'enabled', '2FA 状态应保留');
+  assert.equal(out.extra.two_factor_error, '', '空串字段也要原样保留');
+  assert.equal(out.extra.chatgpt_web_message_error, '');
+  assert.equal(out.extra.auth_provider, 'chatgpt2api');
+  assert.equal(out.extra.privacy_mode, 'training_off');
+  assert.equal(out.extra.mailbox_outlook_email, 'user@outlook.com');
+
+  assert.equal(out.concurrency, 5, '不能被默认值 10 覆盖');
+  assert.equal(out.priority, 3, '不能被默认值 1 覆盖');
+  assert.equal(out.rate_multiplier, 2);
+  assert.deepEqual(out.group_ids, [4, 7]);
+});
+
+test('数据库重建路径：rawJson 里的 extra 能被还原（兑换/后台导出都走这里）', () => {  // 导入时落库的原始对象
+  const raw = {
+    name: 'user@outlook.com----PICKUP----gpt-pwd',
+    platform: 'openai',
+    type: 'oauth',
+    concurrency: 5,
+    priority: 3,
+    rate_multiplier: 2,
+    auto_pause_on_expired: false,
+    group_ids: [4],
+    credentials: { access_token: accessToken(), email: 'user@outlook.com' },
+    extra: {
+      auth_provider: 'chatgpt2api',
+      privacy_mode: 'training_off',
+      two_factor_enabled: true,
+      two_factor_error: '',
+      two_factor_status: 'enabled',
+    },
+  };
+
+  // 模拟 public.service / accounts.service 从数据库行重建 NormalizedAccount
+  const normalized = {
+    name: 'user@outlook.com',
+    accessToken: accessToken(),
+    email: 'user@outlook.com',
+    rawSource: 'sub2api',
+    raw,
+    ...readSub2ApiPassthrough(raw),
+  };
+
+  const out = JSON.parse(service.buildDeliverContent('sub2api', [normalized])).accounts[0];
+  assert.equal(out.extra.two_factor_enabled, true);
+  assert.equal(out.extra.two_factor_status, 'enabled');
+  assert.equal(out.extra.two_factor_error, '', '空串字段也要原样保留');
+  assert.equal(out.extra.auth_provider, 'chatgpt2api');
+  assert.equal(out.extra.privacy_mode, 'training_off');
+  assert.equal(out.concurrency, 5);
+  assert.equal(out.priority, 3);
+  assert.equal(out.rate_multiplier, 2);
+  assert.equal(out.auto_pause_on_expired, false, 'false 不能被默认值覆盖');
+  assert.deepEqual(out.group_ids, [4]);
+});
+
+test('CPA 交付：主体仍是 Codex auth，额外带 extra（含 2FA 标记，不含 TOTP 密钥）', () => {
+  const sample = sub2apiSample();
+  sample.accounts[0].extra = {
+    auth_provider: 'chatgpt2api',
+    privacy_mode: 'training_off',
+    two_factor_enabled: true,
+    two_factor_error: '',
+    two_factor_status: 'enabled',
+  };
+
+  const { items } = service.parseAccounts(JSON.stringify(sample), 'sample.json');
+  const account = items[0].account;
+  const cpa = service.toCpaDocument([account]);
+
+  // Codex auth 主体字段一个都不能少
+  assert.equal(cpa.type, 'codex', 'CPA 主体仍是 Codex auth');
+  assert.ok(cpa.access_token, 'access_token 存在');
+  assert.equal(cpa.id_token.split('.').length, 3, 'id_token 为三段式 JWT');
+  assert.equal(cpa.refresh_token, 'rt.1.REFRESH-TOKEN-VALUE-0123456789');
+  assert.equal(cpa.plan_type, 'plus');
+
+  // extra：2FA 标记原样保留
+  assert.equal(cpa.extra.two_factor_enabled, true);
+  assert.equal(cpa.extra.two_factor_status, 'enabled');
+  assert.equal(cpa.extra.two_factor_error, '', '空串字段也要原样保留');
+  assert.equal(cpa.extra.auth_provider, 'chatgpt2api');
+  assert.equal(cpa.extra.privacy_mode, 'training_off');
+
+  // 不注入服务端补充键，也不带 notes（TOTP 密钥在 notes.two_factor.secret）
+  assert.equal('email_key' in cpa.extra, false);
+  assert.equal('mailbox_lookup_name' in cpa.extra, false);
+  assert.equal('notes' in cpa, false, 'CPA 不带 notes，因此不含 TOTP 密钥');
+  assert.equal(JSON.stringify(cpa).includes('ABCDEFGHIJKLMNOPQRSTUV'), false, '不应出现取件凭据行');
+
+  // 批量合并文档里的账号条目同样带 extra
+  const batch = JSON.parse(service.buildMergedContent('cpa', [account, account]));
+  assert.equal(batch.accounts.length, 2);
+  for (const entry of batch.accounts) {
+    assert.equal(entry.type, 'codex');
+    assert.equal(entry.extra.two_factor_status, 'enabled');
+  }
+
+  // 再导入不丢 extra
+  const back = service.parseAccounts(JSON.stringify(cpa), 'cpa.json');
+  assert.equal(back.items[0].account.extra.two_factor_status, 'enabled');
+});
+
+test('CPA 交付：来源没有 extra 时不写这个键（保持产物形态不变）', () => {
+  const cpaSample = path.join(__dirname, '..', '..', '..', 'samples', 'cpa.sample.json');
+  if (!fs.existsSync(cpaSample)) {
+    // 用一份最小裸 Codex auth 代替
+    const bare = {
+      type: 'codex',
+      email: 'demo.user@outlook.com',
+      access_token: accessToken(),
+      refresh_token: 'rt.1.X',
+      account_id: 'acct-1',
+    };
+    const cpa = service.toCpaDocument(
+      service.parseAccounts(JSON.stringify(bare), 'bare.json').items.map((i) => i.account),
+    );
+    assert.equal('extra' in cpa, false);
+    return;
+  }
+  const parsed = service.parseAccounts(fs.readFileSync(cpaSample, 'utf8'), 'cpa.sample.json');
+  const cpa = service.toCpaDocument(parsed.items.map((i) => i.account));
+  assert.equal(cpa.type, 'codex');
+  assert.equal('extra' in cpa, false, '裸 Codex auth 导入后不应凭空多出 extra');
 });

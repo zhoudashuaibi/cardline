@@ -148,6 +148,11 @@ export interface RedeemSummary {
 export interface RedeemResponse {
   format: DeliverFormat;
   results: RedeemResult[];
+  /**
+   * 所有成功结果的账号合并成的**单份**完整文档（sub2api / CPA 为 accounts 包装 JSON，
+   * email 为全部凭据行），失败或无成功结果时为 `null`。
+   */
+  mergedContent: string | null;
   summary: RedeemSummary;
 }
 

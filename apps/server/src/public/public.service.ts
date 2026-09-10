@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ConvertService } from '../convert/convert.service';
+import { ConvertService, readSub2ApiPassthrough } from '../convert/convert.service';
 import { MailboxService } from '../mailbox/mailbox.service';
 import { SettingsService } from '../settings/settings.service';
 import { FORMAT_META } from '../common/error-codes';
@@ -163,18 +163,27 @@ export class RedeemService {
     const limit = Math.min(20, Math.max(1, Number(payload?.limit) || settings.redeemLimitPerCard || 1));
 
     const results: Array<Record<string, unknown>> = [];
+    /** 各卡成功交付的账号，按提交顺序累积，用于生成「合并下载」的单份文档 */
+    const delivered: NormalizedAccount[] = [];
     let successCount = 0;
     let failedCount = 0;
     let creditsSum = 0;
     let accountCount = 0;
 
     for (const cardKey of cards) {
-      const result = await this.redeemOne(cardKey, format, limit, payload?.ip, payload?.userAgent);
-      results.push(result);
-      if (result.ok) {
+      const { record, normalized } = await this.redeemOne(
+        cardKey,
+        format,
+        limit,
+        payload?.ip,
+        payload?.userAgent,
+      );
+      results.push(record);
+      if (record.ok) {
         successCount++;
-        creditsSum += Number(result.credits) || 0;
-        accountCount += Number(result.accountCount) || 0;
+        creditsSum += Number(record.credits) || 0;
+        accountCount += Number(record.accountCount) || 0;
+        delivered.push(...normalized);
       } else {
         failedCount++;
       }
@@ -183,6 +192,8 @@ export class RedeemService {
     return {
       format,
       results,
+      // 合并下载：所有卡密的账号进同一份文档（sub2api / CPA 用 accounts 包装，email 直接拼行）
+      mergedContent: delivered.length ? this.convert.buildMergedContent(format, delivered) : null,
       summary: {
         total: cards.length,
         success: successCount,
@@ -199,24 +210,30 @@ export class RedeemService {
     limit: number,
     ip?: string,
     userAgent?: string,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<{ record: Record<string, unknown>; normalized: NormalizedAccount[] }> {
     const account = (await this.prisma.account.findUnique({
       where: { cardKey },
       include: { mailbox: true },
     })) as AccountWithMailbox | null;
 
-    const fail = (code: string, message: string): Record<string, unknown> => ({
-      card: cardKey,
-      ok: false,
-      code,
-      message,
-      credits: null,
-      accountCount: 0,
-      redeemedAt: null,
-      firstRedeem: false,
-      filename: null,
-      content: null,
-      accounts: [],
+    const fail = (
+      code: string,
+      message: string,
+    ): { record: Record<string, unknown>; normalized: NormalizedAccount[] } => ({
+      normalized: [],
+      record: {
+        card: cardKey,
+        ok: false,
+        code,
+        message,
+        credits: null,
+        accountCount: 0,
+        redeemedAt: null,
+        firstRedeem: false,
+        filename: null,
+        content: null,
+        accounts: [],
+      },
     });
 
     if (!account) {
@@ -292,23 +309,26 @@ export class RedeemService {
     await this.log(cardKey, account.id, account.credits, format, true, 'OK', ip, userAgent);
 
     return {
-      card: cardKey,
-      ok: true,
-      code: 'OK',
-      message: isFirstRedeem ? '兑换成功' : '已兑换过，本次为同账号重新导出',
-      credits: account.credits,
-      accountCount: accounts.length,
-      redeemedAt: (verified.redeemedAt || new Date()).toISOString(),
-      firstRedeem: isFirstRedeem,
-      filename,
-      content,
-      accounts: accounts.map((item) => ({
-        id: item.id,
-        name: item.name,
-        credits: item.credits,
-        planType: item.planType,
-        email: item.email,
-      })),
+      normalized,
+      record: {
+        card: cardKey,
+        ok: true,
+        code: 'OK',
+        message: isFirstRedeem ? '兑换成功' : '已兑换过，本次为同账号重新导出',
+        credits: account.credits,
+        accountCount: accounts.length,
+        redeemedAt: (verified.redeemedAt || new Date()).toISOString(),
+        firstRedeem: isFirstRedeem,
+        filename,
+        content,
+        accounts: accounts.map((item) => ({
+          id: item.id,
+          name: item.name,
+          credits: item.credits,
+          planType: item.planType,
+          email: item.email,
+        })),
+      },
     };
   }
 
@@ -360,6 +380,9 @@ export class RedeemService {
       rawSource: (account.rawSource as 'sub2api' | 'cpa') || 'sub2api',
       raw,
       mailbox,
+      // extra（含 two_factor_*）/ concurrency / rate_multiplier 等只存在 rawJson 里，
+      // 不回填的话交付文件会丢掉这些字段
+      ...readSub2ApiPassthrough(raw),
     };
   }
 

@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { ConvertService } from '../convert/convert.service';
+import { ConvertService, readSub2ApiPassthrough } from '../convert/convert.service';
 import { MailboxService } from '../mailbox/mailbox.service';
 import { SettingsService } from '../settings/settings.service';
 import type { MailboxCredential, PickupResult } from '../mailbox/mailbox.types';
@@ -715,6 +715,9 @@ export class AccountsService {
       rawSource: (account.rawSource as 'sub2api' | 'cpa') || 'sub2api',
       raw,
       mailbox,
+      // extra（含 two_factor_*）/ concurrency / rate_multiplier 等只存在 rawJson 里，
+      // 不回填的话导出文件会丢掉这些字段
+      ...readSub2ApiPassthrough(raw),
     };
   }
 

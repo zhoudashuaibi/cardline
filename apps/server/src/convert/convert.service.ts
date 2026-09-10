@@ -10,13 +10,13 @@ import {
   looksPassword,
   looksRefreshToken,
   toDate,
-  toInt,
 } from '../common/utils';
 import type {
   ConvertIssue,
   ConvertResult,
   ConvertedItem,
   CpaAccount,
+  CpaBatchDocument,
   MailboxCredential,
   NormalizedAccount,
   Sub2ApiAccount,
@@ -26,6 +26,48 @@ import type {
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAILBOX_PATH_PATTERN = /mailbox|bind|primary/i;
 const OPENAI_PATH_PATTERN = /credentials|openai|chatgpt|\bgpt\b/i;
+
+/** sub2api 账号原样透传的附加字段（`extra` 里带 2FA / 隐私模式 / 长上下文等标记） */
+export interface Sub2ApiPassthrough {
+  extra?: Record<string, unknown>;
+  concurrency?: number;
+  priority?: number;
+  rateMultiplier?: number;
+  autoPauseOnExpired?: boolean;
+  groupIds?: number[];
+}
+
+/**
+ * 从原始账号对象里读出 sub2api 侧的透传字段。
+ *
+ * 导入时这些字段存在 `rawJson` 里，交付/导出时账号是从数据库重建的，
+ * 必须用同一个函数还原，否则 `extra`（含 `two_factor_*`）会被静默丢掉。
+ */
+export function readSub2ApiPassthrough(
+  record: Record<string, unknown> | undefined,
+): Sub2ApiPassthrough {
+  if (!record) return {};
+  const numeric = (value: unknown): number | undefined => {
+    if (value === undefined || value === null || value === '') return undefined;
+    const num = Number(value);
+    return Number.isFinite(num) ? num : undefined;
+  };
+  const integer = (value: unknown): number | undefined => {
+    const num = numeric(value);
+    return num === undefined ? undefined : Math.trunc(num);
+  };
+  return {
+    extra: isPlainObject(record.extra) ? (record.extra as Record<string, unknown>) : undefined,
+    concurrency: integer(record.concurrency),
+    priority: integer(record.priority),
+    rateMultiplier: numeric(record.rate_multiplier),
+    autoPauseOnExpired:
+      typeof record.auto_pause_on_expired === 'boolean' ? record.auto_pause_on_expired : undefined,
+    groupIds: Array.isArray(record.group_ids)
+      ? (record.group_ids.filter((item) => Number.isFinite(Number(item))) as number[])
+      : undefined,
+  };
+}
 
 /** 判断对象是否是一个「账号对象」 */
 function looksLikeAccountRecord(value: unknown): boolean {
@@ -160,17 +202,24 @@ export class ConvertService {
     return `${this.encodeBase64UrlJson({ alg: 'none', typ: 'JWT', cpa_synthetic: true })}.${this.encodeBase64UrlJson(payload)}.synthetic`;
   }
 
-  private stripUnavailable(value: unknown): unknown {
+  /**
+   * 去掉空值。
+   *
+   * `keepEmpty` 为 true 时保留空字符串 —— 只用于 `extra` 这类原样透传区，
+   * 目的是让交付文件与导入时的原文件逐字段一致（例如 `two_factor_error: ""`）。
+   */
+  private stripUnavailable(value: unknown, keepEmpty = false): unknown {
     if (Array.isArray(value)) {
-      return value.map((item) => this.stripUnavailable(item)).filter((item) => item !== undefined);
+      return value.map((item) => this.stripUnavailable(item, keepEmpty)).filter((item) => item !== undefined);
     }
     if (isPlainObject(value)) {
       const entries = Object.entries(value)
-        .map(([key, item]) => [key, this.stripUnavailable(item)] as const)
+        .map(([key, item]) => [key, this.stripUnavailable(item, keepEmpty)] as const)
         .filter(([, item]) => item !== undefined);
       return entries.length ? Object.fromEntries(entries) : undefined;
     }
-    if (value === undefined || value === null || value === '') return undefined;
+    if (value === undefined || value === null) return undefined;
+    if (value === '' && !keepEmpty) return undefined;
     return value;
   }
 
@@ -490,15 +539,7 @@ export class ConvertService {
       rawSource,
       raw: record,
       mailbox,
-      concurrency: Number.isFinite(Number(record.concurrency)) ? toInt(record.concurrency) : undefined,
-      priority: Number.isFinite(Number(record.priority)) ? toInt(record.priority) : undefined,
-      rateMultiplier: Number.isFinite(Number(record.rate_multiplier))
-        ? Number(record.rate_multiplier)
-        : undefined,
-      autoPauseOnExpired:
-        typeof record.auto_pause_on_expired === 'boolean' ? record.auto_pause_on_expired : undefined,
-      groupIds: Array.isArray(record.group_ids) ? (record.group_ids as number[]) : undefined,
-      extra: isPlainObject(record.extra) ? record.extra : undefined,
+      ...readSub2ApiPassthrough(record),
     };
   }
 
@@ -538,7 +579,26 @@ export class ConvertService {
       }).filter(([, value]) => value !== undefined && value !== null),
     ) as unknown as CpaAccount;
 
+    // 参考 cpa_格式参考.json：账号对象带 extra。原样透传导入字段（含 two_factor_* 2FA 标记），
+    // 空串保留；Codex CLI 只读它认识的键，未知键会被忽略。
+    const extra = this.buildCpaExtra(account);
+    if (extra) cpa.extra = extra;
+
     return cpa;
+  }
+
+  /**
+   * CPA 的 `extra`：把账号导入时的附加字段**一个键不加、一个键不减**地原样带出。
+   *
+   * 与 sub2api 的 `extra` 的区别是这里**不注入** `email_key` / `name` / `mailbox_*` 等服务端
+   * 补充键 —— 来源 `extra` 里本来就有 `mailbox_*` 的话会照原样带出，但服务端不会额外补。
+   */
+  private buildCpaExtra(account: NormalizedAccount): Record<string, unknown> | undefined {
+    if (!account.extra) return undefined;
+    const entries = Object.entries(account.extra).filter(
+      ([, value]) => value !== undefined && value !== null,
+    );
+    return entries.length ? Object.fromEntries(entries) : undefined;
   }
 
   // -------------------------------------------------------------------------
@@ -572,23 +632,37 @@ export class ConvertService {
         plan_type: account.planType,
         refresh_token: account.refreshToken,
       },
-      extra: {
-        ...(account.extra || {}),
-        email: account.email,
-        email_key: emailKey(account.email),
-        name: account.name,
-        mailbox_email: account.mailbox?.email,
-        mailbox_provider: account.mailbox?.provider,
-        mailbox_auth_type: account.mailbox?.authType,
-        mailbox_lookup_name: account.mailbox?.line,
-        source: firstNonEmpty(get(account.raw, 'extra.source'), 'cardline'),
-      },
     }) as Sub2ApiAccount;
 
     if (sub2api.credentials) {
       sub2api.credentials = this.stripUnavailable(sub2api.credentials) as Record<string, unknown>;
     }
+    // extra 是透传区（含 two_factor_* 等），不参与整体去空值，否则 "" 会被抹掉
+    const extra = this.buildExtra(account);
+    if (extra) sub2api.extra = extra;
+
     return sub2api;
+  }
+
+  /**
+   * 组装 `extra`：导入时的原字段**原样保留**（含空串，如 `two_factor_error: ""`），
+   * 服务端补充的字段只在有值时写入。
+   */
+  private buildExtra(account: NormalizedAccount): Record<string, unknown> | undefined {
+    const added = (this.stripUnavailable({
+      email: account.email,
+      email_key: emailKey(account.email),
+      name: account.name,
+      mailbox_email: account.mailbox?.email,
+      mailbox_provider: account.mailbox?.provider,
+      mailbox_auth_type: account.mailbox?.authType,
+      mailbox_lookup_name: account.mailbox?.line,
+      source: firstNonEmpty(get(account.raw, 'extra.source'), 'cardline'),
+    }) || {}) as Record<string, unknown>;
+
+    const merged = { ...(account.extra || {}), ...added };
+    const entries = Object.entries(merged).filter(([, value]) => value !== undefined && value !== null);
+    return entries.length ? Object.fromEntries(entries) : undefined;
   }
 
   /** notes 里保存 mailbox + gpt 段，便于后续往返转换 */
@@ -642,6 +716,15 @@ export class ConvertService {
   toCpaDocument(accounts: NormalizedAccount[], now = new Date()): CpaAccount | CpaAccount[] {
     const list = accounts.map((account) => this.toCpaAccount(account, now));
     return list.length === 1 ? list[0] : list;
+  }
+
+  /** CPA 批量文档：始终使用 accounts 包装结构，对齐 cpa_格式参考.json */
+  toCpaBatchDocument(accounts: NormalizedAccount[], now = new Date()): CpaBatchDocument {
+    return {
+      accounts: accounts.map((account) => this.toCpaAccount(account, now)),
+      exported_at: now.toISOString(),
+      proxies: [],
+    };
   }
 
   /** 邮箱 TXT：每行四段式凭据 */
@@ -832,5 +915,22 @@ export class ConvertService {
       return `${JSON.stringify(this.toCpaDocument(accounts, now), null, 2)}\n`;
     }
     return `${JSON.stringify(this.toSub2ApiDocument(accounts, now), null, 2)}\n`;
+  }
+
+  /**
+   * 批量交付内容：把多张卡密的账号合并成**一份**完整文档（而不是多份文档首尾相接）。
+   *
+   * - `sub2api`：`{ type, version, exported_at, proxies, accounts[] }`（同单卡结构，账号累积）
+   * - `cpa`：`{ accounts[], exported_at, proxies[] }` 包装结构，对齐 `cpa_格式参考.json`
+   * - `email`：所有凭据行直接拼接，不带任何分隔标题
+   */
+  buildMergedContent(format: string, accounts: NormalizedAccount[], now = new Date()): string {
+    if (format === 'email') {
+      return this.buildDeliverContent('email', accounts, now);
+    }
+    if (format === 'cpa') {
+      return `${JSON.stringify(this.toCpaBatchDocument(accounts, now), null, 2)}\n`;
+    }
+    return this.buildDeliverContent('sub2api', accounts, now);
   }
 }

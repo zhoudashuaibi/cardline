@@ -135,10 +135,26 @@ npm run dev          # 同时启动后端(3000) + 前端(5173)
 | 格式 | 产物 | 内容 |
 | --- | --- | --- |
 | `sub2api` | `<卡密>.sub2api.json` | `{ type: "sub2api-data", version, exported_at, proxies, accounts[] }`，每个账号含 `credentials`，并在 `notes` 里保留邮箱取件凭据 |
-| `cpa` | `<卡密>.cpa.json` | `{ type: "codex", access_token, id_token, refresh_token, email, account_id, plan_type, expired }`；单账号输出对象，多账号输出数组 |
+| `cpa` | `<卡密>.cpa.json` | `{ type: "codex", access_token, id_token, refresh_token, email, account_id, plan_type, expired }`；单账号输出对象，多账号输出数组。来源有 `extra` 时随产物带上（见下） |
 | `email` | `<卡密>.txt` | 每行 `邮箱----密码----clientid----refresh_token` |
 
+**合并下载（兑换页「合并下载全部」）**：多张卡密一次兑换后，逐卡下载拿到的是 N 份独立文件；点「合并下载全部」拿到的是**一份**文档，所有成功账号进同一个 `accounts` 数组，失败卡密不写入：
+
+- `sub2api` → `{ type: "sub2api-data", version, exported_at, proxies: [], accounts: [...] }`（与 `sub2api_格式参考.json` 同构）
+- `cpa` → `{ accounts: [...], exported_at, proxies: [] }`（与 `cpa_格式参考.json` 同构；参考文件里的 `x_revive_manifest` 含 Ed25519 签名，本服务无签名私钥，故省略而不是写一个无效签名）
+- `email` → 所有凭据行直接拼接，不带任何 `===== 卡密 =====` 分隔标题
+
 `sub2api ⇄ CPA` 双向无损转换，逻辑对齐 [convert.13916454.xyz](https://convert.13916454.xyz/)：缺少真实 `id_token` 时按 CPA 规则构造 Codex 可解析的占位 JWT（`id_token_synthetic: true`）。**只做转换，不做测活。**
+
+**导入的字段会跟着账号一起交付**：`extra` 整个透传（`auth_provider`、`privacy_mode`、`openai_*`、`two_factor_enabled` / `two_factor_status` / `two_factor_error` …，含空串原样保留），`concurrency` / `priority` / `rate_multiplier` / `auto_pause_on_expired` / `group_ids` 也按导入值输出，不会被默认值顶掉；`notes` 里的 `mailbox` 与 `two_factor.secret` 段原样保留。导入时这些字段存在数据库 `rawJson` 里，兑换下载与后台导出都从它还原。
+
+**CPA 与 2FA**：CPA 产物主体仍是 Codex CLI 直读的 `auth.json`（`type: "codex"` + `access_token` / `id_token` …），在此之上追加一个 `extra`，把导入时的附加字段原样带上 —— 这是 `cpa_格式参考.json` 里放 2FA 标记的位置：
+
+- 带上：`two_factor_enabled` / `two_factor_status` / `two_factor_error` 等**标记**，以及 `auth_provider` / `privacy_mode` / `openai_*`（来源 `extra` 里有什么就带什么，一个键不加不减）
+- 不带：TOTP **密钥**。密钥在 sub2api 的 `notes.two_factor.secret` 里，CPA 没有 `notes` 字段位，本实现也不会把它塞进 `extra`；服务端补充键（`email_key` / `name` / 手工拼的 `mailbox_*`）同样不写入 CPA
+- 来源没有 `extra` 时（例如裸 Codex auth 导入的账号），产物不写 `extra`，形态与以前完全一致
+
+> Codex CLI 读取 `auth.json` 时只认它自己需要的键，多余的 `extra` 会被忽略；如果你的下游对未知字段做严格校验，请在设置里改用 `sub2api` 格式交付 2FA 信息。
 
 ### 3.2 卡密规则
 
