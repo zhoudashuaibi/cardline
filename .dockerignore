@@ -1,0 +1,25 @@
+node_modules
+**/node_modules
+**/dist
+**/build
+.git
+.gitignore
+*.log
+npm-debug.log*
+
+# 本地数据库与密钥
+apps/server/prisma/*.db
+apps/server/prisma/*.db-journal
+apps/server/.env
+apps/web/.env.local
+
+# 参考资料 / 截图
+_ref_converter
+*.png
+*.jpg
+*.jpeg
+
+# 编辑器
+.vscode
+.idea
+.DS_Store

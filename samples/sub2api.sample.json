@@ -1,0 +1,84 @@
+{
+  "type": "sub2api-data",
+  "version": 1,
+  "exported_at": "2026-09-10T13:27:41.755Z",
+  "proxies": [],
+  "accounts": [
+    {
+      "name": "demo.user@outlook.com----DEMO-PICKUP-PASSWORD----demo-chatgpt-password",
+      "notes": "{\n  \"mailbox\": {\n    \"bind_email\": \"demo.user@outlook.com\",\n    \"primary_email\": \"demo.user@outlook.com\",\n    \"password\": \"demo-mailbox-pwd\",\n    \"client_id\": \"9e5f94bc-e8a4-4e73-b8be-63364c29d753\",\n    \"refresh_token\": \"M.C528_BAY.0.U.MsaArtifacts.kse-Iycew!Mywc-aWo-eM6EusW6Mk-WU!02osYA6iEIugm6OcCyKW-o0OoaigiA0MqwYs0s8o6eAsi6oGqsMMI!!EuKskWso!k4OQCEQOu-!mS6O6QG-O-2e8wCcGe2EMuiM8IYwI4O40yOiysWmCIUumccQQEysuc-K!nSks2KOaUqEasgM0egG8kSCGmQWCsU!aiGsWCsgAmECGcYQiE-4i-0aAKkAe2cmSM!C6YGUaqQ-uaKcWKeOgoiqSi!k4gKUAEiWSQw8q0Ue4e!iuGwwgkKG6mykK-WgAKo!68CCM8KSkGaIOQS66u!ia2I!wAQ4I-8EuG!G6wMMskckOwmy-SQWQm8MG6caCiyasecMQXCc0!emoI2oyika!GyKWWCUSQaWYKk4WeOWGSeus2yYUIS4YY6-waEU\",\n    \"pickup_password\": \"DEMO-PICKUP-PASSWORD\",\n    \"provider\": \"outlook\",\n    \"auth_type\": \"oauth2\",\n    \"imap_host\": \"outlook.office365.com\",\n    \"imap_port\": \"993\",\n    \"source_line\": \"demo.user@outlook.com----demo-mailbox-pwd----9e5f94bc-e8a4-4e73-b8be-63364c29d753----M.C528_BAY.0.U.MsaArtifacts.kse-Iycew!Mywc-aWo-eM6EusW6Mk-WU!02osYA6iEIugm6OcCyKW-o0OoaigiA0MqwYs0s8o6eAsi6oGqsMMI!!EuKskWso!k4OQCEQOu-!mS6O6QG-O-2e8wCcGe2EMuiM8IYwI4O40yOiysWmCIUumccQQEysuc-K!nSks2KOaUqEasgM0egG8kSCGmQWCsU!aiGsWCsgAmECGcYQiE-4i-0aAKkAe2cmSM!C6YGUaqQ-uaKcWKeOgoiqSi!k4gKUAEiWSQw8q0Ue4e!iuGwwgkKG6mykK-WgAKo!68CCM8KSkGaIOQS66u!ia2I!wAQ4I-8EuG!G6wMMskckOwmy-SQWQm8MG6caCiyasecMQXCc0!emoI2oyika!GyKWWCUSQaWYKk4WeOWGSeus2yYUIS4YY6-waEU\"\n  },\n  \"gpt\": {\n    \"password\": \"demo-chatgpt-password\"\n  },\n  \"two_factor\": {\n    \"enabled_by_config\": true,\n    \"enabled\": true,\n    \"status\": \"enabled\",\n    \"secret\": \"DEMO2FASECRET234567\"\n  }\n}",
+      "platform": "openai",
+      "type": "oauth",
+      "concurrency": 10,
+      "priority": 1,
+      "rate_multiplier": 1,
+      "auto_pause_on_expired": true,
+      "credentials": {
+        "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IlNBTVBMRS1LRVktSUQifQ.eyJhdWQiOlsiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS92MSJdLCJjbGllbnRfaWQiOiJhcHBfRU1vYW1FRVo3M2YwQ2tYYVhwN2hyYW5uIiwiZXhwIjoxNzg5OTEwODYxLCJpYXQiOjE3ODkwNDY4NjEsImlzcyI6Imh0dHBzOi8vYXV0aC5vcGVuYWkuY29tIiwic3ViIjoiYXV0aDB8dXNlci1ERU1PMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAxIiwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7ImNoYXRncHRfYWNjb3VudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC05MDAwLTAwMDAwMDAwMDAwMSIsImNoYXRncHRfcGxhbl90eXBlIjoicGx1cyIsImNoYXRncHRfdXNlcl9pZCI6InVzZXItREVNTzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMSIsInVzZXJfaWQiOiJ1c2VyLURFTU8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEifSwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9wcm9maWxlIjp7ImVtYWlsIjoiZGVtby51c2VyQG91dGxvb2suY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsIm5hbWUiOiJEZW1vIFVzZXIifX0.SAMPLE-SIGNATURE-NOT-A-REAL-TOKENxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "chatgpt_account_id": "00000000-0000-4000-9000-000000000001",
+        "chatgpt_user_id": "user-DEMO000000000000000000000001",
+        "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+        "email": "demo.user@outlook.com",
+        "expires_at": 1789910861,
+        "id_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IlNBTVBMRS1LRVktSUQifQ.eyJhdWQiOlsiYXBwX0VNb2FtRUVaNzNmMENrWGFYcDdocmFubiJdLCJlbWFpbCI6ImRlbW8udXNlckBvdXRsb29rLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJleHAiOjE3ODczMTg4NjEsImlhdCI6MTc4NjQ1NDg2MSwiaXNzIjoiaHR0cHM6Ly9hdXRoLm9wZW5haS5jb20iLCJzdWIiOiJhdXRoMHx1c2VyLURFTU8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLCJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTkwMDAtMDAwMDAwMDAwMDAxIiwiY2hhdGdwdF9wbGFuX3R5cGUiOiJwbHVzIiwiY2hhdGdwdF91c2VyX2lkIjoidXNlci1ERU1PMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAxIiwidXNlcl9pZCI6InVzZXItREVNTzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMSJ9fQ.SAMPLE-SIGNATURE-NOT-A-REAL-TOKENxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "organization_id": "org-00000000-0000-4000-9000-000000000001",
+        "plan_type": "plus",
+        "refresh_token": "rt.1.M.C528_BAY.0.U.MsaArtifacts.ewkAG44OM-kaKqUEKaSGwo!6eGiG2YsC24qyyOYc8GoG8mEEeyYWcw-GaQ6W"
+      },
+      "extra": {
+        "auth_provider": "demo",
+        "email": "demo.user@outlook.com",
+        "mailbox_auth_type": "oauth2",
+        "mailbox_email": "demo.user@outlook.com",
+        "mailbox_lookup_name": "demo.user@outlook.com----DEMO-PICKUP-PASSWORD----demo-chatgpt-password",
+        "mailbox_provider": "outlook",
+        "mailbox_user_email": "demo.user@outlook.com",
+        "openai_long_context_billing_enabled": false,
+        "openai_oauth_responses_websockets_v2_enabled": false,
+        "openai_oauth_responses_websockets_v2_mode": "off",
+        "privacy_mode": "training_off",
+        "source": "sample-data",
+        "two_factor_enabled": true,
+        "two_factor_status": "enabled"
+      }
+    },
+    {
+      "name": "demo.free@outlook.com----DEMO-PICKUP-PASSWORD-2----demo-chatgpt-password",
+      "notes": "{\n  \"mailbox\": {\n    \"bind_email\": \"demo.free@outlook.com\",\n    \"primary_email\": \"demo.free@outlook.com\",\n    \"password\": \"demo-mailbox-pwd-2\",\n    \"client_id\": \"9e5f94bc-e8a4-4e73-b8be-63364c29d753\",\n    \"refresh_token\": \"M.C528_BAY.0.U.MsaArtifacts.2smi2ye-Oi0kAW4Oo4ugWiSUOQAAKSsgKs-O6kQ-i-ioAawSgKmkky!EKkQ866gwSQgOwSyo!gEG8QCU6iyIsGoYG!Q8eI-MmO8gIKs-0!SiAooo2!GymsSe8Q-O8-GEuYq8wA!!Q!KOSqikKA0ycAeiokcc4gO6SW8GsCkWs6AwK!w4Qeco0yyUAkG2i2wgMiSUco6qIaayWeKAKoMAs-G0!ke8qGG6-S0AGiQkoaWggiuM2oC0s6Cc!8cYYuiky2oOcCOyg0MiigC0Yc0OgMk8e!sugY6cKcGAiwYO4cIkUaGY2COq0!ws--aA4WIYeY!sMyW0aW4y6coa4MmEIqawmai0MacgImY!g4iA6GigYsQEIysaIAKk2sioI26kOy!E!OmgAI!AUAe2!wkoWe8Iya4k8emwUs2E\",\n    \"pickup_password\": \"DEMO-PICKUP-PASSWORD-2\",\n    \"provider\": \"outlook\",\n    \"auth_type\": \"oauth2\",\n    \"imap_host\": \"outlook.office365.com\",\n    \"imap_port\": \"993\",\n    \"source_line\": \"demo.free@outlook.com----demo-mailbox-pwd-2----9e5f94bc-e8a4-4e73-b8be-63364c29d753----M.C528_BAY.0.U.MsaArtifacts.2smi2ye-Oi0kAW4Oo4ugWiSUOQAAKSsgKs-O6kQ-i-ioAawSgKmkky!EKkQ866gwSQgOwSyo!gEG8QCU6iyIsGoYG!Q8eI-MmO8gIKs-0!SiAooo2!GymsSe8Q-O8-GEuYq8wA!!Q!KOSqikKA0ycAeiokcc4gO6SW8GsCkWs6AwK!w4Qeco0yyUAkG2i2wgMiSUco6qIaayWeKAKoMAs-G0!ke8qGG6-S0AGiQkoaWggiuM2oC0s6Cc!8cYYuiky2oOcCOyg0MiigC0Yc0OgMk8e!sugY6cKcGAiwYO4cIkUaGY2COq0!ws--aA4WIYeY!sMyW0aW4y6coa4MmEIqawmai0MacgImY!g4iA6GigYsQEIysaIAKk2sioI26kOy!E!OmgAI!AUAe2!wkoWe8Iya4k8emwUs2E\"\n  },\n  \"gpt\": {\n    \"password\": \"demo-chatgpt-password\"\n  },\n  \"two_factor\": {\n    \"enabled_by_config\": true,\n    \"enabled\": true,\n    \"status\": \"enabled\",\n    \"secret\": \"DEMO2FASECRET234567\"\n  }\n}",
+      "platform": "openai",
+      "type": "oauth",
+      "concurrency": 10,
+      "priority": 1,
+      "rate_multiplier": 1,
+      "auto_pause_on_expired": true,
+      "credentials": {
+        "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IlNBTVBMRS1LRVktSUQifQ.eyJhdWQiOlsiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS92MSJdLCJjbGllbnRfaWQiOiJhcHBfRU1vYW1FRVo3M2YwQ2tYYVhwN2hyYW5uIiwiZXhwIjoxNzg5OTEwODYxLCJpYXQiOjE3ODkwNDY4NjEsImlzcyI6Imh0dHBzOi8vYXV0aC5vcGVuYWkuY29tIiwic3ViIjoiYXV0aDB8dXNlci1ERU1PMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAyIiwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7ImNoYXRncHRfYWNjb3VudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC05MDAwLTAwMDAwMDAwMDAwMiIsImNoYXRncHRfcGxhbl90eXBlIjoiZnJlZSIsImNoYXRncHRfdXNlcl9pZCI6InVzZXItREVNTzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMiIsInVzZXJfaWQiOiJ1c2VyLURFTU8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDIifSwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9wcm9maWxlIjp7ImVtYWlsIjoiZGVtby5mcmVlQG91dGxvb2suY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsIm5hbWUiOiJEZW1vIEZyZWUifX0.SAMPLE-SIGNATURE-NOT-A-REAL-TOKENxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "chatgpt_account_id": "00000000-0000-4000-9000-000000000002",
+        "chatgpt_user_id": "user-DEMO000000000000000000000002",
+        "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+        "email": "demo.free@outlook.com",
+        "expires_at": 1789910861,
+        "id_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6IlNBTVBMRS1LRVktSUQifQ.eyJhdWQiOlsiYXBwX0VNb2FtRUVaNzNmMENrWGFYcDdocmFubiJdLCJlbWFpbCI6ImRlbW8uZnJlZUBvdXRsb29rLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJleHAiOjE3ODczMTg4NjEsImlhdCI6MTc4NjQ1NDg2MSwiaXNzIjoiaHR0cHM6Ly9hdXRoLm9wZW5haS5jb20iLCJzdWIiOiJhdXRoMHx1c2VyLURFTU8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDIiLCJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTkwMDAtMDAwMDAwMDAwMDAyIiwiY2hhdGdwdF9wbGFuX3R5cGUiOiJmcmVlIiwiY2hhdGdwdF91c2VyX2lkIjoidXNlci1ERU1PMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAyIiwidXNlcl9pZCI6InVzZXItREVNTzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMiJ9fQ.SAMPLE-SIGNATURE-NOT-A-REAL-TOKENxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "organization_id": "org-00000000-0000-4000-9000-000000000002",
+        "plan_type": "free",
+        "refresh_token": "rt.1.M.C528_BAY.0.U.MsaArtifacts.zAQKs6K4McCs84aWM-Gc4oE!mMk0UuewIcssUKCAAK0GMgMoiASuugMAcyoQ"
+      },
+      "extra": {
+        "auth_provider": "demo",
+        "email": "demo.free@outlook.com",
+        "mailbox_auth_type": "oauth2",
+        "mailbox_email": "demo.free@outlook.com",
+        "mailbox_lookup_name": "demo.free@outlook.com----DEMO-PICKUP-PASSWORD-2----demo-chatgpt-password",
+        "mailbox_provider": "outlook",
+        "mailbox_user_email": "demo.free@outlook.com",
+        "openai_long_context_billing_enabled": false,
+        "openai_oauth_responses_websockets_v2_enabled": false,
+        "openai_oauth_responses_websockets_v2_mode": "off",
+        "privacy_mode": "training_off",
+        "source": "sample-data",
+        "two_factor_enabled": true,
+        "two_factor_status": "enabled"
+      }
+    }
+  ]
+}

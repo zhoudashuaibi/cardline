@@ -1,0 +1,59 @@
+name: cardline
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.server
+    image: cardline-server:latest
+    container_name: cardline-server
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOST: 0.0.0.0
+      DATABASE_URL: "file:/data/cardline.db"
+      JWT_SECRET: "${JWT_SECRET:-cardline-please-change-this-secret}"
+      JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-7d}"
+      ADMIN_USERNAME: "${ADMIN_USERNAME:-admin}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-admin123}"
+      CORS_ORIGIN: "*"
+      PICKUP_CONCURRENCY: "${PICKUP_CONCURRENCY:-4}"
+      PICKUP_TIMEOUT_MS: "${PICKUP_TIMEOUT_MS:-30000}"
+      PICKUP_MAX_MESSAGES: "${PICKUP_MAX_MESSAGES:-30}"
+      CARD_PREFIX: "${CARD_PREFIX:-CARD}"
+      TZ: "${TZ:-Asia/Shanghai}"
+    volumes:
+      - cardline-data:/data
+    # 需要直接从宿主机访问接口时打开
+    # ports:
+    #   - "3000:3000"
+    networks:
+      - cardline
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    image: cardline-web:latest
+    container_name: cardline-web
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    environment:
+      TZ: "${TZ:-Asia/Shanghai}"
+      # nginx 反代的后端地址（默认对应下面的 server 服务）
+      CARDLINE_API_UPSTREAM: "${CARDLINE_API_UPSTREAM:-server:3000}"
+    networks:
+      - cardline
+
+volumes:
+  cardline-data:
+    driver: local
+
+networks:
+  cardline:
+    driver: bridge

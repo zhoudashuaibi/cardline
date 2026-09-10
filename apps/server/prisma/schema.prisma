@@ -1,0 +1,167 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// 后台用户
+// ---------------------------------------------------------------------------
+model AdminUser {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  displayName  String   @default("管理员")
+  role         String   @default("admin")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// 导入批次（按额度分批）
+// ---------------------------------------------------------------------------
+model Batch {
+  id        Int       @id @default(autoincrement())
+  batchId   String    @unique
+  credits   Int
+  count     Int       @default(0)
+  remark    String?
+  source    String    @default("paste")
+  createdAt DateTime  @default(now())
+  accounts  Account[]
+}
+
+// ---------------------------------------------------------------------------
+// 账号（= 一张卡密）
+// ---------------------------------------------------------------------------
+model Account {
+  id           Int       @id @default(autoincrement())
+  name         String
+  email        String?
+  credits      Int
+  cardKey      String    @unique
+  cardDisabled Boolean   @default(false)
+  planType     String?
+  accountId    String?
+  userId       String?
+  accessToken  String
+  refreshToken String?
+  idToken      String?
+  sessionToken String?
+  expiresAt    DateTime?
+  rawSource    String    @default("sub2api")
+  rawJson      String?
+
+  banStatus    String    @default("unknown")
+  banReason    String?
+  banKeywords  String?
+  banCheckedAt DateTime?
+
+  redeemStatus String    @default("unredeemed")
+  redeemedAt   DateTime?
+  redeemCount  Int       @default(0)
+  copyCount    Int       @default(0)
+
+  batchId String?
+  remark  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  batch      Batch?          @relation(fields: [batchId], references: [batchId], onDelete: SetNull)
+  mailbox    MailCredential?
+  redeemLogs RedeemLog[]
+  pickupLogs PickupLog[]
+
+  @@index([credits])
+  @@index([banStatus])
+  @@index([redeemStatus])
+  @@index([email])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// 邮箱取件凭据
+// ---------------------------------------------------------------------------
+model MailCredential {
+  id           Int      @id @default(autoincrement())
+  accountId    Int      @unique
+  email        String
+  provider     String   @default("outlook")
+  authType     String   @default("oauth2")
+  password     String?
+  clientId     String?
+  refreshToken String?
+  line         String?
+  imapHost     String?
+  imapPort     Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+}
+
+// ---------------------------------------------------------------------------
+// 兑换日志
+// ---------------------------------------------------------------------------
+model RedeemLog {
+  id        Int      @id @default(autoincrement())
+  cardKey   String
+  accountId Int?
+  credits   Int
+  format    String
+  ip        String?
+  userAgent String?
+  success   Boolean  @default(true)
+  message   String?
+  createdAt DateTime @default(now())
+
+  account Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@index([cardKey])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// 取件日志
+// ---------------------------------------------------------------------------
+model PickupLog {
+  id        Int      @id @default(autoincrement())
+  accountId Int
+  email     String
+  ok        Boolean
+  banned    Boolean  @default(false)
+  credits   Int?
+  code      String?
+  error     String?
+  createdAt DateTime @default(now())
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// 额度档位
+// ---------------------------------------------------------------------------
+model CreditTier {
+  id      Int    @id @default(autoincrement())
+  credits Int    @unique
+  label   String
+  sort    Int    @default(0)
+}
+
+// ---------------------------------------------------------------------------
+// 键值设置
+// ---------------------------------------------------------------------------
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

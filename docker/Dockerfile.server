@@ -1,0 +1,73 @@
+# ---------------------------------------------------------------------------
+# 阶段 1：安装依赖
+# ---------------------------------------------------------------------------
+FROM node:22-bookworm-slim AS deps
+WORKDIR /app
+
+# Prisma 在 debian-slim 上需要 openssl
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY package.json package-lock.json ./
+COPY apps/server/package.json apps/server/package.json
+COPY apps/web/package.json apps/web/package.json
+
+# 只需要后端 workspace 的依赖（含 prisma CLI，后面用于生成 Prisma Client）
+RUN npm install --workspace @cardline/server --include-workspace-root --no-audit --no-fund
+
+# 先按 schema 生成 Prisma Client，这样生成的 .prisma/client 会落在这份 node_modules 里，
+# 直接被下面的 runner 阶段复用（否则运行时会报 "@prisma/client did not initialize yet"）
+COPY apps/server/prisma ./apps/server/prisma
+RUN npx prisma generate --schema apps/server/prisma/schema.prisma
+
+# ---------------------------------------------------------------------------
+# 阶段 2：编译 NestJS
+# ---------------------------------------------------------------------------
+FROM deps AS build
+WORKDIR /app
+
+COPY apps/server ./apps/server
+
+ENV DATABASE_URL="file:/data/cardline.db"
+RUN npm run build --workspace @cardline/server
+
+# ---------------------------------------------------------------------------
+# 阶段 3：运行时
+# ---------------------------------------------------------------------------
+FROM node:22-bookworm-slim AS runner
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/* \
+  && mkdir -p /data
+
+ENV NODE_ENV=production \
+    PORT=3000 \
+    HOST=0.0.0.0 \
+    DATABASE_URL="file:/data/cardline.db" \
+    JWT_SECRET=change-me-in-production \
+    CORS_ORIGIN="*"
+
+# 依赖（含 @prisma/client 生成的引擎）
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=build /app/apps/server/dist ./apps/server/dist
+COPY --from=build /app/apps/server/prisma ./apps/server/prisma
+COPY apps/server/scripts ./apps/server/scripts
+COPY apps/server/package.json ./apps/server/package.json
+COPY apps/server/.env.docker ./apps/server/.env
+COPY package.json ./package.json
+
+# 启动时同步表结构（db push）再拉起服务
+COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+VOLUME ["/data"]
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:3000/api/public/meta > /dev/null || exit 1
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["node", "apps/server/dist/main.js"]

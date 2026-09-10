@@ -1,0 +1,41 @@
+node_modules/
+dist/
+build/
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# 数据库（SQLite 运行时文件）
+apps/server/prisma/*.db
+apps/server/prisma/*.db-journal
+apps/server/prisma/*.db-wal
+apps/server/prisma/*.db-shm
+apps/server/prisma/migrations/
+
+# 本地环境变量（含密钥，绝不入库）
+apps/server/.env
+apps/web/.env
+apps/web/.env.local
+.env
+!.env.docker.example
+!apps/server/.env.example
+!apps/server/.env.docker
+
+# ⚠️ 含真实账号凭据的参考资料，绝不入库
+# （access_token / refresh_token / 邮箱密码 / ChatGPT 密码）
+sub2api_格式参考.json
+cpa_格式参考.json
+*@*.cpa.json
+*.cpa.json
+samples/*.local.json
+
+# 临时文件
+.tmp-*
+_ref_converter/
+*.local
+
+# 编辑器
+.vscode/
+.idea/

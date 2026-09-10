@@ -1,0 +1,316 @@
+/* ==========================================================================
+   公共首页 · 卡密兑换页
+   ========================================================================== */
+
+.redeem-body {
+  padding-top: 48px;
+  padding-bottom: 64px;
+}
+
+.redeem-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 420px;
+  gap: 48px;
+  align-items: start;
+}
+
+.redeem-left {
+  min-width: 0;
+}
+
+/* ------------------------------ 标题区 ------------------------------ */
+
+.redeem-title {
+  margin: 14px 0 20px;
+  font-size: 56px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  color: var(--ink);
+}
+
+.redeem-lead {
+  margin: 0;
+  max-width: 520px;
+  font-size: 14.5px;
+  line-height: 1.85;
+  color: var(--muted);
+}
+
+/* ------------------------------ 信息条 ------------------------------ */
+
+.info-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 28px;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.info-bar .status-dot {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.info-bar .status-dot__dot {
+  width: 8px;
+  height: 8px;
+}
+
+.info-bar__right {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+}
+
+.info-bar__hint {
+  font-size: 11.5px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.info-bar__edge {
+  margin-left: 16px;
+  padding-left: 16px;
+  border-left: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+/* ------------------------------ 三格统计条 ------------------------------ */
+
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin-top: 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.stat-cell {
+  padding: 18px 20px;
+  border-right: 1px solid var(--line);
+  min-width: 0;
+}
+
+.stat-cell:last-child {
+  border-right: none;
+}
+
+.stat-cell__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.stat-cell__value {
+  margin-top: 6px;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stat-cell__value--sm {
+  font-size: 22px;
+}
+
+.stat-cell__caption {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+/* ------------------------------ 交付流程 ------------------------------ */
+
+.flow {
+  margin-top: 40px;
+}
+
+.flow__eyebrow {
+  margin-bottom: 18px;
+}
+
+.flow__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+}
+
+.flow__step {
+  min-width: 0;
+  padding-right: 20px;
+}
+
+.flow__step + .flow__step {
+  padding-left: 20px;
+  border-left: 1px solid var(--line);
+}
+
+.flow__chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 18px;
+  border-radius: 5px;
+  background: #f1f3ef;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.flow__chip--accent {
+  background: var(--accent);
+  color: #3a4a1e;
+}
+
+.flow__title {
+  margin-top: 10px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.flow__desc {
+  margin-top: 4px;
+  max-width: 190px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--faint);
+}
+
+/* ------------------------------ 脚注 ------------------------------ */
+
+.footnote {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 40px 0 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--faint);
+}
+
+.footnote__mark {
+  color: var(--brand);
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+/* ------------------------------ 操作台 ------------------------------ */
+
+.redeem-console {
+  min-width: 0;
+}
+
+.redeem-textarea.ant-input {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.75;
+  resize: none;
+  border-radius: 10px;
+}
+
+.redeem-textarea.ant-input::placeholder {
+  color: #b9c2bd;
+}
+
+/* ------------------------------ 响应式 ------------------------------ */
+
+@media (max-width: 1024px) {
+  .redeem-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+
+  .console--sticky {
+    position: static;
+    top: auto;
+  }
+
+  .redeem-title {
+    font-size: 44px;
+  }
+}
+
+@media (max-width: 720px) {
+  .redeem-body {
+    padding-top: 32px;
+    padding-bottom: 40px;
+  }
+
+  .redeem-title {
+    font-size: 36px;
+  }
+
+  .info-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .info-bar__right {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .info-bar__hint {
+    white-space: normal;
+  }
+
+  .info-bar__edge {
+    margin-left: 0;
+    padding-left: 0;
+    border-left: none;
+  }
+
+  .stat-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .stat-cell {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .stat-cell:last-child {
+    border-bottom: none;
+  }
+
+  .flow__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .flow__step {
+    padding-right: 0;
+  }
+
+  .flow__step + .flow__step {
+    padding-left: 0;
+    border-left: none;
+    border-top: 1px solid var(--line);
+    margin-top: 16px;
+    padding-top: 16px;
+  }
+}

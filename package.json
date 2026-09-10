@@ -1,0 +1,31 @@
+{
+  "name": "cardline",
+  "version": "1.0.0",
+  "private": true,
+  "description": "卡密兑换 + 邮箱取件系统（NestJS + React + Ant Design）",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm run dev --workspace @cardline/server",
+    "dev:web": "npm run dev --workspace @cardline/web",
+    "build": "npm run build --workspace @cardline/server && npm run build --workspace @cardline/web",
+    "start": "npm run start --workspace @cardline/server",
+    "db:push": "npm run db:push --workspace @cardline/server",
+    "db:studio": "npm run db:studio --workspace @cardline/server",
+    "test:convert": "npm run test:convert --workspace @cardline/server",
+    "test:smoke": "node apps/server/scripts/smoke-test.js",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f --tail=200",
+    "docker:rebuild": "docker compose build --no-cache && docker compose up -d"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
