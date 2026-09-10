@@ -231,6 +231,11 @@ async function main() {
     const result = redeem.json?.results?.[0];
     assert(result?.ok === true, `兑换成功（${format}）`, result?.message);
     assert(Boolean(result?.content), `返回交付内容（${format}）`, `${result?.filename} ${result?.content?.length} 字节`);
+    assert(
+      result?.filename === (format === 'email' ? `${first.cardKey}.txt` : `${first.cardKey}.${format}.json`),
+      `交付文件名带格式（${format}）`,
+      result?.filename,
+    );
 
     if (format === 'email') {
       const lines = String(result.content).trim().split('\n');
@@ -277,13 +282,17 @@ async function main() {
   });
   assert(mixed.json?.summary?.success === 1 && mixed.json?.summary?.failed === 1, '成功/失败结果分开统计');
 
-  // 合并下载：一张文件装下所有成功账号，失败卡密不写入
+  // 批量交付：sub2api / email 合并成一份；CPA 没有合并形态（前台走 zip 打包）
   const merged = JSON.parse(mixed.json?.mergedContent ?? 'null');
-  assert(Array.isArray(merged?.accounts), 'CPA 合并文件为 accounts 包装结构', JSON.stringify(Object.keys(merged ?? {})));
-  assert(merged.accounts.length === 1, '只合并成功结果', `accounts=${merged?.accounts?.length}`);
-  assert(Boolean(merged.exported_at) && Array.isArray(merged.proxies), '合并文件带 exported_at / proxies');
+  assert(merged === null, 'CPA 不返回合并文档（前台打包 zip，每张卡一个文件）', JSON.stringify(mixed.json?.mergedContent)?.slice(0, 40));
 
-  const noSuccess = await call('POST', '/public/redeem', { cards: ['CARD-AAAAA-BBBBB-CCCCC'], format: 'cpa' });
+  const twoCards = `${first.cardKey}\n${first.cardKey}`;
+  const subMerged = await call('POST', '/public/redeem', { cards: twoCards, format: 'sub2api' });
+  const parsedSubMerged = JSON.parse(subMerged.json?.mergedContent ?? 'null');
+  assert(parsedSubMerged?.type === 'sub2api-data', 'sub2api 合并文档仍是单份 sub2api 文档');
+  assert(Array.isArray(parsedSubMerged?.accounts) && parsedSubMerged.accounts.length >= 1, '合并文档含账号');
+
+  const noSuccess = await call('POST', '/public/redeem', { cards: ['CARD-AAAAA-BBBBB-CCCCC'], format: 'sub2api' });
   assert(noSuccess.json?.mergedContent === null, '全部失败时不给合并文件');
 
   // -------------------------------------------------------------------------

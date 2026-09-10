@@ -298,14 +298,16 @@ test('脱敏样例 samples/cpa.sample.json 可以被解析', (t) => {
   assert.equal(result.items[0].account.planType, 'plus');
 });
 
-test('合并下载：多张卡密的账号合成一份 accounts 包装文档', () => {  // 模拟「批量下载全部」：3 张卡密，每张交付 1 个账号
+test('批量交付：sub2api / email 合并成一份，CPA 没有合并形态', () => {
+  // 模拟「批量下载」：3 张卡密，每张交付 1 个账号
   const parsed = service.parseAccounts(JSON.stringify(sub2apiSample()), 'sample.json');
   const perCard = parsed.items.map((item) => item.account);
   const all = [...perCard, ...perCard, ...perCard];
   assert.equal(all.length, 3);
 
   // sub2api：结构与单卡一致，账号累积到同一个数组
-  const sub2api = JSON.parse(service.buildMergedContent('sub2api', all));
+  const sub2apiText = service.buildDeliverContent('sub2api', all);
+  const sub2api = JSON.parse(sub2apiText);
   assert.equal(sub2api.type, 'sub2api-data');
   assert.equal(sub2api.version, 1);
   assert.ok(Array.isArray(sub2api.proxies), 'proxies 应为数组');
@@ -313,31 +315,27 @@ test('合并下载：多张卡密的账号合成一份 accounts 包装文档', (
   assert.ok(sub2api.exported_at, 'exported_at 应存在');
   assert.ok(sub2api.accounts[0].credentials?.access_token, 'credentials.access_token 不应丢');
 
-  // CPA：批量必须是 accounts 包装对象（不是数组、也不是多份文档相接）
-  const cpaText = service.buildMergedContent('cpa', all);
-  const cpa = JSON.parse(cpaText);
-  assert.equal(Array.isArray(cpa), false, 'CPA 合并文档应为包装对象');
-  assert.equal(cpa.accounts.length, 3);
-  assert.ok(cpa.exported_at, 'exported_at 应存在');
-  assert.ok(Array.isArray(cpa.proxies), 'proxies 应为数组');
-  for (const account of cpa.accounts) assert.equal(account.type, 'codex');
-  assert.equal(Object.prototype.hasOwnProperty.call(cpa, 'x_revive_manifest'), false, '无法签名的清单不应写入');
-
   // 合并后的文件必须能原样再导入（否则「一份文件」没有意义）
-  const reimportedSub2Api = service.parseAccounts(service.buildMergedContent('sub2api', all), 'merged.json');
-  assert.equal(reimportedSub2Api.issues.length, 0, JSON.stringify(reimportedSub2Api.issues.slice(0, 3)));
-  assert.equal(reimportedSub2Api.items.length, 3);
-  const reimportedCpa = service.parseAccounts(cpaText, 'merged-cpa.json');
-  assert.equal(reimportedCpa.issues.length, 0, JSON.stringify(reimportedCpa.issues.slice(0, 3)));
-  assert.equal(reimportedCpa.items.length, 3);
+  const reimported = service.parseAccounts(sub2apiText, 'merged.json');
+  assert.equal(reimported.issues.length, 0, JSON.stringify(reimported.issues.slice(0, 3)));
+  assert.equal(reimported.items.length, 3);
 
   // email：直接拼行，不带 ===== 卡密 ===== 之类的分隔标题
-  const emailText = service.buildMergedContent('email', all);
+  const emailText = service.buildDeliverContent('email', all);
   assert.equal(emailText.includes('====='), false, '邮箱 TXT 不应带分隔标题');
   assert.equal(emailText.trim().split('\n').length, 3);
   for (const line of emailText.trim().split('\n')) {
     assert.ok(line.split('----').length >= 4, `凭据行异常：${line.slice(0, 60)}`);
   }
+
+  // CPA：没有「合并成一份」的形态 —— 多张卡密由前台打包 zip，
+  // 服务端只有「单账号输出对象 / 多账号输出数组」这一种 CPA 文档
+  const cpaOne = service.buildDeliverContent('cpa', [all[0]]);
+  assert.equal(JSON.parse(cpaOne).type, 'codex', '单账号 CPA 是 Codex auth 对象');
+  const cpaMany = JSON.parse(service.buildDeliverContent('cpa', all));
+  assert.equal(Array.isArray(cpaMany), true, '多账号 CPA 是数组，不是 accounts 包装对象');
+  assert.equal(cpaMany.length, 3);
+  for (const account of cpaMany) assert.equal(account.type, 'codex');
 });
 
 test('交付时保留 extra（含 2FA 标记）与 concurrency / rate_multiplier / group_ids', () => {
@@ -452,10 +450,11 @@ test('CPA 交付：主体仍是 Codex auth，额外带 extra（含 2FA 标记，
   assert.equal('notes' in cpa, false, 'CPA 不带 notes，因此不含 TOTP 密钥');
   assert.equal(JSON.stringify(cpa).includes('ABCDEFGHIJKLMNOPQRSTUV'), false, '不应出现取件凭据行');
 
-  // 批量合并文档里的账号条目同样带 extra
-  const batch = JSON.parse(service.buildMergedContent('cpa', [account, account]));
-  assert.equal(batch.accounts.length, 2);
-  for (const entry of batch.accounts) {
+  // 批量导出多张卡密时产出的仍是数组（前台会打包成 zip，每张卡一个文件）
+  const batch = JSON.parse(service.buildDeliverContent('cpa', [account, account]));
+  assert.equal(Array.isArray(batch), true);
+  assert.equal(batch.length, 2);
+  for (const entry of batch) {
     assert.equal(entry.type, 'codex');
     assert.equal(entry.extra.two_factor_status, 'enabled');
   }

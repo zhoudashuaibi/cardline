@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { App as AntApp, Button, Input, InputNumber, Select, Tag } from 'antd';
 
-import { downloadText, errorMessage, getPublicMeta, redeemCards } from '../api/client';
+import { downloadBlob, downloadText, errorMessage, getPublicMeta, redeemCards } from '../api/client';
 import type { DeliverFormat, PublicMeta, RedeemResponse, RedeemResult } from '../api/types';
 import SiteFooter from '../components/SiteFooter';
 import SiteHeader from '../components/SiteHeader';
 import StatusDot from '../components/StatusDot';
 import { formatNumber, timestampSuffix } from '../utils/format';
+import { buildZipBlob } from '../utils/zip';
 import './RedeemPage.css';
 
 const { TextArea } = Input;
@@ -123,6 +124,13 @@ export default function RedeemPage() {
   const processed = results.length;
   const totalInRun = response?.summary.total ?? 0;
 
+  const hasResults = results.length > 0;
+  /** CPA 走 zip 打包（每张卡一个文件），其余格式走合并成一份文档 */
+  const isZipBatch = response?.format === 'cpa';
+  const hasBatch = isZipBatch
+    ? results.some((item) => item.ok && item.content)
+    : Boolean(response?.mergedContent);
+
   const queueCapacity = useMemo(() => {
     if (!meta) return '—';
     const available = meta.stats?.available ?? 0;
@@ -158,10 +166,26 @@ export default function RedeemPage() {
   }, []);
 
   const downloadAll = useCallback(() => {
-    if (!response?.mergedContent) {
+    if (!response || !hasBatch) {
       void message.warning('当前没有可下载的成功结果');
       return;
     }
+
+    // CPA 没有「合并成一份」的形态：下游要的是一个个独立的 Codex auth 文件，
+    // 所以打包成 zip，每张卡密一个 .cpa.json
+    if (response.format === 'cpa') {
+      const succeeded = results.filter((item) => item.ok && item.content);
+      const blob = buildZipBlob(
+        succeeded.map((item) => ({
+          name: item.filename ?? `${item.card}.cpa.json`,
+          content: item.content ?? '',
+        })),
+      );
+      downloadBlob(blob, `cardline-cpa-${timestampSuffix()}.zip`);
+      return;
+    }
+
+    if (!response.mergedContent) return;
 
     const ext =
       formatOptions.find((item) => item.value === response.format)?.ext ??
@@ -171,7 +195,7 @@ export default function RedeemPage() {
       response.mergedContent,
       `cardline-${response.format}-${timestampSuffix()}.${ext}`,
     );
-  }, [formatOptions, message, response]);
+  }, [formatOptions, hasBatch, message, response, results]);
 
   const downloadManifest = useCallback(() => {
     if (!response) {
@@ -207,9 +231,6 @@ export default function RedeemPage() {
     setResponse(null);
     setStatusText('等待输入卡密');
   }, []);
-
-  const hasResults = results.length > 0;
-  const hasMerged = Boolean(response?.mergedContent);
 
   return (
     <div className="page">
@@ -350,8 +371,8 @@ export default function RedeemPage() {
               </div>
 
               <div className="console__ghost-row">
-                <Button size="small" disabled={!hasMerged} onClick={downloadAll}>
-                  合并下载全部
+                <Button size="small" disabled={!hasBatch} onClick={downloadAll}>
+                  {isZipBatch ? '打包下载 (zip)' : '合并下载全部'}
                 </Button>
                 <Button size="small" disabled={!hasResults} onClick={downloadManifest}>
                   结果清单

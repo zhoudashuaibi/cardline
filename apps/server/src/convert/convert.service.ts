@@ -16,7 +16,6 @@ import type {
   ConvertResult,
   ConvertedItem,
   CpaAccount,
-  CpaBatchDocument,
   MailboxCredential,
   NormalizedAccount,
   Sub2ApiAccount,
@@ -718,15 +717,6 @@ export class ConvertService {
     return list.length === 1 ? list[0] : list;
   }
 
-  /** CPA 批量文档：始终使用 accounts 包装结构，对齐 cpa_格式参考.json */
-  toCpaBatchDocument(accounts: NormalizedAccount[], now = new Date()): CpaBatchDocument {
-    return {
-      accounts: accounts.map((account) => this.toCpaAccount(account, now)),
-      exported_at: now.toISOString(),
-      proxies: [],
-    };
-  }
-
   /** 邮箱 TXT：每行四段式凭据 */
   toEmailLines(accounts: NormalizedAccount[]): string[] {
     return accounts
@@ -906,7 +896,12 @@ export class ConvertService {
     return candidate ? { value: candidate, sourceName, path: '$' } : undefined;
   }
 
-  /** 给交付文件挑选合适的文档字符串 */
+  /**
+   * 给交付文件挑选合适的文档字符串。
+   *
+   * 注意：`cpa` 没有「合并成一份」的形态 —— 下游要的是一个个独立的 Codex auth 文件，
+   * 多张卡密的 CPA 由前台打包成 zip（每张卡一个 `.cpa.json`），不走这里。
+   */
   buildDeliverContent(format: string, accounts: NormalizedAccount[], now = new Date()): string {
     if (format === 'email') {
       return `${this.toEmailLines(accounts).join('\n')}\n`;
@@ -915,22 +910,5 @@ export class ConvertService {
       return `${JSON.stringify(this.toCpaDocument(accounts, now), null, 2)}\n`;
     }
     return `${JSON.stringify(this.toSub2ApiDocument(accounts, now), null, 2)}\n`;
-  }
-
-  /**
-   * 批量交付内容：把多张卡密的账号合并成**一份**完整文档（而不是多份文档首尾相接）。
-   *
-   * - `sub2api`：`{ type, version, exported_at, proxies, accounts[] }`（同单卡结构，账号累积）
-   * - `cpa`：`{ accounts[], exported_at, proxies[] }` 包装结构，对齐 `cpa_格式参考.json`
-   * - `email`：所有凭据行直接拼接，不带任何分隔标题
-   */
-  buildMergedContent(format: string, accounts: NormalizedAccount[], now = new Date()): string {
-    if (format === 'email') {
-      return this.buildDeliverContent('email', accounts, now);
-    }
-    if (format === 'cpa') {
-      return `${JSON.stringify(this.toCpaBatchDocument(accounts, now), null, 2)}\n`;
-    }
-    return this.buildDeliverContent('sub2api', accounts, now);
   }
 }

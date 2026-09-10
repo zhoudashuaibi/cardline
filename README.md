@@ -138,11 +138,13 @@ npm run dev          # 同时启动后端(3000) + 前端(5173)
 | `cpa` | `<卡密>.cpa.json` | `{ type: "codex", access_token, id_token, refresh_token, email, account_id, plan_type, expired }`；单账号输出对象，多账号输出数组。来源有 `extra` 时随产物带上（见下） |
 | `email` | `<卡密>.txt` | 每行 `邮箱----密码----clientid----refresh_token` |
 
-**合并下载（兑换页「合并下载全部」）**：多张卡密一次兑换后，逐卡下载拿到的是 N 份独立文件；点「合并下载全部」拿到的是**一份**文档，所有成功账号进同一个 `accounts` 数组，失败卡密不写入：
+**批量下载（兑换页底部按钮）**：多张卡密一次兑换后，逐卡下载拿到的是 N 份独立文件；批量按钮按格式给不同的东西：
 
-- `sub2api` → `{ type: "sub2api-data", version, exported_at, proxies: [], accounts: [...] }`（与 `sub2api_格式参考.json` 同构）
-- `cpa` → `{ accounts: [...], exported_at, proxies: [] }`（与 `cpa_格式参考.json` 同构；参考文件里的 `x_revive_manifest` 含 Ed25519 签名，本服务无签名私钥，故省略而不是写一个无效签名）
-- `email` → 所有凭据行直接拼接，不带任何 `===== 卡密 =====` 分隔标题
+| 格式 | 批量产物 |
+| --- | --- |
+| `sub2api` | **一份** `cardline-sub2api-<时间戳>.json`，所有成功账号进同一个 `accounts` 数组（与 `sub2api_格式参考.json` 同构），失败卡密不写入 |
+| `cpa` | **一个 zip** `cardline-cpa-<时间戳>.zip`，里面每张卡密一个独立的 `.cpa.json`（裸 Codex auth，形同 `samples/cpa.sample.json`）。CPA 不做合并：下游要的就是一个个独立文件 |
+| `email` | **一份** `cardline-email-<时间戳>.txt`，所有凭据行直接拼接，不带任何 `===== 卡密 =====` 分隔标题 |
 
 `sub2api ⇄ CPA` 双向无损转换，逻辑对齐 [convert.13916454.xyz](https://convert.13916454.xyz/)：缺少真实 `id_token` 时按 CPA 规则构造 Codex 可解析的占位 JWT（`id_token_synthetic: true`）。**只做转换，不做测活。**
 

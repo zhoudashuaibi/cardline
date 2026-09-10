@@ -18,6 +18,19 @@ import type { Account } from '@prisma/client';
 const MAX_CARDS = 500;
 const MAX_PICKUP_RECORDS = 20;
 
+/**
+ * 交付文件名：`<卡密>.sub2api.json` / `<卡密>.cpa.json` / `<卡密>.txt`。
+ *
+ * 名字里带格式，是因为 CPA 的批量下载会把这些文件打成一个 zip ——
+ * 全都叫 `<卡密>.json` 的话，解压出来分不出是哪种格式。
+ */
+function deliverFilename(cardKey: string, format: string): string {
+  const meta = FORMAT_META[format as keyof typeof FORMAT_META];
+  const ext = meta?.ext || 'json';
+  const stem = safeFilename(cardKey, 'card');
+  return format === 'email' ? `${stem}.${ext}` : `${stem}.${format}.${ext}`;
+}
+
 export interface ResolvedRecord {
   key: string;
   email: string;
@@ -192,8 +205,12 @@ export class RedeemService {
     return {
       format,
       results,
-      // 合并下载：所有卡密的账号进同一份文档（sub2api / CPA 用 accounts 包装，email 直接拼行）
-      mergedContent: delivered.length ? this.convert.buildMergedContent(format, delivered) : null,
+      // 合并下载：sub2api / email 把所有成功账号并成一份文档。
+      // CPA 没有合并形态（下游要一个个独立的 Codex auth 文件），前台改为打包 zip。
+      mergedContent:
+        format === 'cpa' || delivered.length === 0
+          ? null
+          : this.convert.buildDeliverContent(format, delivered),
       summary: {
         total: cards.length,
         success: successCount,
@@ -302,9 +319,9 @@ export class RedeemService {
 
     const normalized = accounts.map((item) => this.toNormalized(item));
     const content = this.convert.buildDeliverContent(format, normalized);
-    const filename = `${safeFilename(cardKey, 'card')}.${
-      FORMAT_META[format as keyof typeof FORMAT_META]?.ext || 'json'
-    }`;
+    // 文件名带上格式：<卡密>.sub2api.json / <卡密>.cpa.json / <卡密>.txt。
+    // CPA 批量下载会把这些文件打成一个 zip，名字里不带格式就分不出是哪一种。
+    const filename = deliverFilename(cardKey, format);
 
     await this.log(cardKey, account.id, account.credits, format, true, 'OK', ip, userAgent);
 

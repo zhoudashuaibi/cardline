@@ -151,17 +151,19 @@ HTTP 4xx/5xx，body：
 
 失败 `code` 取值：`CARD_INVALID` 卡密不存在 / `NO_STOCK` 该额度已无可用账号 / `CARD_DISABLED` 卡密已停用 / `CREDITS_PENDING` 账号额度待定（邮箱取件还没命中额度关键字，不进兑换池）。
 
-#### `mergedContent` —— 「合并下载全部」
+#### `mergedContent` —— 批量下载
 
-各卡的 `content` 是**每张卡一份**的独立文档，首尾相接并不是合法 JSON。`mergedContent` 是服务端把所有**成功结果**的账号合并成的**单份**文档，供前台「合并下载全部」使用；失败卡密不写入，全部失败时为 `null`。
+各卡的 `content` 是**每张卡一份**的独立文档，首尾相接并不是合法 JSON。`mergedContent` 是服务端把所有**成功结果**的账号合并成的**单份**文档；失败卡密不写入，全部失败时为 `null`。
 
 | 格式 | 合并文件结构 |
 | --- | --- |
 | `sub2api` | `{ type: "sub2api-data", version, exported_at, proxies: [], accounts: [所有账号] }` |
-| `cpa` | `{ accounts: [所有账号], exported_at, proxies: [] }`（对齐 `cpa_格式参考.json`；该参考里的 `x_revive_manifest` 含 Ed25519 签名，本服务没有签名私钥，故省略而不写无效签名） |
 | `email` | 所有卡密的四段式凭据行直接拼接，不带任何分隔标题 |
+| `cpa` | **恒为 `null`** —— CPA 没有「合并成一份」的形态，下游要的是一个个独立的 Codex auth 文件；前台改为把各卡 `content` 打包成 zip（每张卡一个 `<卡密>.cpa.json`） |
 
 合并文件可被本服务原样再导入（`POST /api/admin/accounts/import`）。
+
+> `cpa` 格式下多账号导出仍走 `content`（单账号是对象、多账号是数组），与单卡下载产物完全一致。
 
 #### 交付产物里的 `extra`（含 2FA）
 

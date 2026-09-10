@@ -87,16 +87,6 @@ export interface CpaAccount {
   extra?: Record<string, unknown>;
 }
 
-/**
- * CPA 批量文档：多张卡密的账号合并进同一份文件时的包装结构。
- * 对齐 `cpa_格式参考.json`（`x_revive_manifest` 含签名，无法伪造故省略）。
- */
-export interface CpaBatchDocument {
-  accounts: CpaAccount[];
-  exported_at: string;
-  proxies: unknown[];
-}
-
 export interface ConvertedItem {
   index: number;
   source: string;
