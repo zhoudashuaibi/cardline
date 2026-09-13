@@ -19,6 +19,8 @@ import type {
   CardRow,
   ChangePasswordRequest,
   CopyCardResponse,
+  CopyCardsRequest,
+  CopyCardsResponse,
   CreditTier,
   CreditTierListResponse,
   DownloadPayload,
@@ -516,6 +518,11 @@ export function batchDisableCards(ids: number[]): Promise<BatchDisableCardsRespo
     method: 'POST',
     body: payload,
   });
+}
+
+/** `POST /api/admin/cards/copy-keys`（传 `ids` 复制勾选，或传 `filter` 复制筛选全量） */
+export function copyCards(payload: CopyCardsRequest): Promise<CopyCardsResponse> {
+  return request<CopyCardsResponse>('/admin/cards/copy-keys', { method: 'POST', body: payload });
 }
 
 /* ------------------------------------------------------------------ *

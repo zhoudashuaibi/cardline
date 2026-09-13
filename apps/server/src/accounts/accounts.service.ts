@@ -35,6 +35,10 @@ const SORTABLE_FIELDS = new Set([
   'planType',
 ]);
 
+/** 「批量复制卡密」单次上限：防止一次超大筛选把内存 / 剪贴板拉爆 */
+const COPY_KEYS_DEFAULT = 5000;
+const COPY_KEYS_MAX = 20000;
+
 export interface AccountFilter {
   keyword?: string;
   credits?: unknown;
@@ -1249,6 +1253,57 @@ export class AccountsService {
       data: { cardDisabled: true },
     });
     return { updated: result.count };
+  }
+
+  /**
+   * 批量复制卡密。
+   *
+   * 两条调用路径共用这里：
+   *  - 勾选行复制：传 `ids`（按前端勾选顺序返回）
+   *  - 按当前筛选复制全部：传 `filter`（跨分页，最多 `limit` 条，超出部分截断）
+   *
+   * 与单张复制（`copyCard`）一致，复制动作累加 `copyCount`。
+   * 文本由服务端拼好（一行一个卡密），前端直接进剪贴板。
+   */
+  async copyCards(payload: { ids?: unknown; filter?: AccountFilter; limit?: unknown }) {
+    const ids = toIntArray(payload?.ids);
+    const limit = Math.min(COPY_KEYS_MAX, toPositiveInt(payload?.limit, COPY_KEYS_DEFAULT));
+    const where: Prisma.AccountWhereInput = ids.length
+      ? { id: { in: ids } }
+      : this.buildWhere(payload?.filter || {});
+
+    const [total, found] = await Promise.all([
+      this.prisma.account.count({ where }),
+      this.prisma.account.findMany({
+        where,
+        select: { id: true, cardKey: true },
+        orderBy: { id: 'desc' },
+        take: limit,
+      }),
+    ]);
+
+    // 勾选复制时按勾选顺序输出，筛选复制时保持「新导入在前」
+    const order = new Map(ids.map((id, index) => [id, index]));
+    const ordered = ids.length
+      ? [...found].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+      : found;
+
+    const keys = ordered.map((item) => item.cardKey).filter((key) => Boolean(key));
+
+    if (ordered.length) {
+      await this.prisma.account.updateMany({
+        where: { id: { in: ordered.map((item) => item.id) } },
+        data: { copyCount: { increment: 1 } },
+      });
+    }
+
+    return {
+      count: keys.length,
+      total,
+      truncated: total > keys.length,
+      keys,
+      text: keys.join('\n'),
+    };
   }
 
   // -------------------------------------------------------------------------

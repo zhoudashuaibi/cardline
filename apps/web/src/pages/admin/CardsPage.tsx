@@ -13,7 +13,7 @@ import {
   Tag,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
+import { CopyOutlined, DownloadOutlined, DownOutlined, ReloadOutlined } from '@ant-design/icons';
 
 import {
   batchDisableCards,
@@ -26,6 +26,7 @@ import {
 } from '../../api/client';
 import type { CardRow, CardStatus, DeliverFormat } from '../../api/types';
 import CopyButton from '../../components/CopyButton';
+import { copyCardKeys, reportCardCopy, type CardCopyScope } from '../../utils/cardCopy';
 import { CARD_STATUS_META, CARD_STATUS_OPTIONS, formatCredits, formatDateTime } from '../../utils/format';
 
 const EXPORT_ITEMS = [
@@ -55,6 +56,7 @@ export default function CardsPage() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [disabling, setDisabling] = useState(false);
+  const [copying, setCopying] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -133,6 +135,49 @@ export default function CardsPage() {
       setDisabling(false);
     }
   };
+
+  /** 批量复制卡密：勾选行 / 当前页 / 当前筛选全部（跨分页，走服务端拼接） */
+  const handleCopy = async (scope: CardCopyScope) => {
+    const ids = scope === 'selected' ? selectedIds : scope === 'page' ? rows.map((row) => row.id) : [];
+    if (scope === 'selected' && ids.length === 0) {
+      void message.warning('请先勾选要复制的卡密');
+      return;
+    }
+    if (scope === 'page' && ids.length === 0) {
+      void message.warning('当前页没有卡密');
+      return;
+    }
+
+    setCopying(true);
+    try {
+      const outcome = await copyCardKeys({
+        ids: ids.length > 0 ? ids : undefined,
+        filter:
+          scope === 'filtered'
+            ? {
+                keyword: keyword || undefined,
+                credits: credits.length > 0 ? credits : undefined,
+                status: status.length > 0 ? status : undefined,
+              }
+            : undefined,
+      });
+      reportCardCopy(outcome, message, scope);
+    } catch (error) {
+      void message.error(errorMessage(error));
+    } finally {
+      setCopying(false);
+    }
+  };
+
+  const copyMenuItems = [
+    {
+      key: 'selected',
+      label: `复制选中卡密（${selectedIds.length}）`,
+      disabled: selectedIds.length === 0,
+    },
+    { key: 'page', label: `复制本页卡密（${rows.length}）`, disabled: rows.length === 0 },
+    { key: 'filtered', label: `复制筛选结果全部（${total}）`, disabled: total === 0 },
+  ];
 
   const handleExport = async (format: DeliverFormat) => {
     try {
@@ -310,6 +355,19 @@ export default function CardsPage() {
             }}
           >
             <Button icon={<DownloadOutlined />}>导出</Button>
+          </Dropdown>
+          <Dropdown
+            menu={{
+              items: copyMenuItems,
+              onClick: ({ key }) => {
+                void handleCopy(key as CardCopyScope);
+              },
+            }}
+          >
+            <Button icon={<CopyOutlined />} loading={copying}>
+              批量复制卡密
+              {selectedIds.length > 0 ? ` (${selectedIds.length})` : ''} <DownOutlined />
+            </Button>
           </Dropdown>
           <Popconfirm
             title={`停用选中的 ${selectedIds.length} 张卡密？`}

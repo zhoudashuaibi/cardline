@@ -25,6 +25,7 @@ import {
 import type { TableProps } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
+  CopyOutlined,
   DownloadOutlined,
   DownOutlined,
   InboxOutlined,
@@ -66,6 +67,7 @@ import type {
 } from '../../api/types';
 import CopyButton, { copyToClipboard } from '../../components/CopyButton';
 import MailboxModal from '../../components/MailboxModal';
+import { copyCardKeys, reportCardCopy, type CardCopyScope } from '../../utils/cardCopy';
 import {
   BAN_STATUS_META,
   BAN_STATUS_OPTIONS,
@@ -756,6 +758,7 @@ export default function AccountsPage() {
   const [mailboxAccount, setMailboxAccount] = useState<AccountRow | null>(null);
   const [remarkSaving, setRemarkSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [copyingKeys, setCopyingKeys] = useState(false);
   const [remarkForm] = Form.useForm<{ remark?: string }>();
   /** 导入后自动定档任务的进度（null = 没有在跑） */
   const [tierJob, setTierJob] = useState<TierJobProgress | null>(null);
@@ -882,6 +885,50 @@ export default function AccountsPage() {
       setDeleting(false);
     }
   };
+
+  /** 批量复制卡密：勾选账号 / 当前页 / 当前筛选全部（跨分页，走服务端拼接） */
+  const handleCopyKeys = async (scope: CardCopyScope) => {
+    const ids = scope === 'selected' ? selectedIds : scope === 'page' ? rows.map((row) => row.id) : [];
+    if (scope === 'selected' && ids.length === 0) {
+      void message.warning('请先勾选要复制的账号');
+      return;
+    }
+    if (scope === 'page' && ids.length === 0) {
+      void message.warning('当前页没有账号');
+      return;
+    }
+
+    setCopyingKeys(true);
+    try {
+      const outcome = await copyCardKeys({
+        ids: ids.length > 0 ? ids : undefined,
+        filter:
+          scope === 'filtered'
+            ? {
+                keyword: filters.keyword || undefined,
+                credits: filters.credits.length > 0 ? filters.credits : undefined,
+                banStatus: filters.banStatus.length > 0 ? filters.banStatus : undefined,
+                redeemStatus: filters.redeemStatus.length > 0 ? filters.redeemStatus : undefined,
+              }
+            : undefined,
+      });
+      reportCardCopy(outcome, message, scope);
+    } catch (error) {
+      void message.error(errorMessage(error));
+    } finally {
+      setCopyingKeys(false);
+    }
+  };
+
+  const copyKeyMenuItems = [
+    {
+      key: 'selected',
+      label: `复制选中卡密（${selectedIds.length}）`,
+      disabled: selectedIds.length === 0,
+    },
+    { key: 'page', label: `复制本页卡密（${rows.length}）`, disabled: rows.length === 0 },
+    { key: 'filtered', label: `复制筛选结果全部（${total}）`, disabled: total === 0 },
+  ];
 
   const handleExport = async (format: DeliverFormat) => {
     try {
@@ -1279,6 +1326,19 @@ export default function AccountsPage() {
             }}
           >
             <Button icon={<DownloadOutlined />}>导出</Button>
+          </Dropdown>
+          <Dropdown
+            menu={{
+              items: copyKeyMenuItems,
+              onClick: ({ key }) => {
+                void handleCopyKeys(key as CardCopyScope);
+              },
+            }}
+          >
+            <Button icon={<CopyOutlined />} loading={copyingKeys}>
+              批量复制卡密
+              {selectedIds.length > 0 ? ` (${selectedIds.length})` : ''} <DownOutlined />
+            </Button>
           </Dropdown>
         </Space>
 

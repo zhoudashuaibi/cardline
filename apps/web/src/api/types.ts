@@ -709,6 +709,36 @@ export interface BatchDisableCardsResponse {
   updated: number;
 }
 
+/** 批量复制卡密的筛选条件（与卡密列表筛选一致） */
+export interface CardCopyFilter {
+  keyword?: string;
+  credits?: number[];
+  status?: CardStatus[];
+  banStatus?: BanStatus[];
+  redeemStatus?: RedeemStatus[];
+}
+
+export interface CopyCardsRequest {
+  /** 指定卡密 id（勾选行复制）；与 filter 二选一，ids 优先 */
+  ids?: number[];
+  /** 按筛选条件复制（跨分页全量） */
+  filter?: CardCopyFilter;
+  /** 单次上限，默认 5000，服务端最多 20000 */
+  limit?: number;
+}
+
+export interface CopyCardsResponse {
+  /** 实际返回的卡密数量 */
+  count: number;
+  /** 命中筛选的总条数（可能大于 count，被上限截断） */
+  total: number;
+  /** true = 命中条数超过上限，已截断 */
+  truncated: boolean;
+  keys: string[];
+  /** 服务端拼好的换行文本，可直接写入剪贴板 */
+  text: string;
+}
+
 /* ------------------------------------------------------------------ *
  * 3.12 额度档位（只读派生：档位由账号邮箱取件命中结果自动得出）
  * ------------------------------------------------------------------ */

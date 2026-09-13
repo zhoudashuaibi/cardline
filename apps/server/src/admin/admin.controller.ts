@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
   ParseIntPipe,
   Patch,
@@ -10,7 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AccountsService, type ListAccountsQuery } from '../accounts/accounts.service';
+import { AccountsService, type AccountFilter, type ListAccountsQuery } from '../accounts/accounts.service';
 import { SettingsService, type AppSettings } from '../settings/settings.service';
 
 @Controller('admin/cards')
@@ -26,6 +27,17 @@ export class CardsController {
   @Post('batch-disable')
   batchDisable(@Body() body: { ids?: number[] }) {
     return this.accounts.batchDisableCards(body?.ids || []);
+  }
+
+  /** 批量复制卡密：传 `ids` 复制勾选行，或传 `filter` 复制筛选结果（跨分页） */
+  @Post('copy-keys')
+  @HttpCode(200)
+  copyKeys(@Body() body: Record<string, unknown>) {
+    return this.accounts.copyCards({
+      ids: body?.ids,
+      filter: (body?.filter || {}) as AccountFilter,
+      limit: body?.limit,
+    });
   }
 
   @Patch(':id')

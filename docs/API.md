@@ -663,6 +663,12 @@ HTTP 4xx/5xx，body：
 - `GET /api/admin/cards` — 同 3.1 分页结构，`items` 元素为 `{ id, cardKey, credits, creditStatus, accountId, accountName, status, redeemStatus, redeemedAt, createdAt, remark }`
 - `PATCH /api/admin/cards/:id` — `{ "status": "disabled" | "active", "remark": "..." }`
 - `POST /api/admin/cards/batch-disable` — `{ "ids": [1,2] }` → `{ "updated": 2 }`
+- `POST /api/admin/cards/copy-keys` — 批量复制卡密（后台「卡密管理」/「账号列表」的复制入口）
+  - 勾选行复制：`{ "ids": [3,1] }`（按传入顺序返回）
+  - 按筛选复制全量：`{ "filter": { "keyword": "outlook", "credits": [100], "status": ["active"], "banStatus": [], "redeemStatus": [] }, "limit": 5000 }`（跨分页；`ids` 优先于 `filter`）
+  - → `{ "count": 2, "total": 2, "truncated": false, "keys": ["CARD-...", "CARD-..."], "text": "CARD-...\nCARD-..." }`
+  - `count` = 实际返回条数，`total` = 命中筛选的总条数（`total > count` 时 `truncated = true`）；单次上限默认 5000、最大 20000
+  - 复制动作与 `POST /api/admin/accounts/:id/copy-card` 一致，会给命中账号的 `copyCount` 累加 1
 
 ### 3.12 额度档位（只读派生）
 

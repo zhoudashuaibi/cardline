@@ -415,6 +415,42 @@ async function main() {
     '卡密列表带出额度',
   );
 
+  // 批量复制卡密（勾选行 / 筛选全量）
+  const copySelected = await call('POST', '/admin/cards/copy-keys', {
+    ids: cards.json.items.slice(0, 2).map((item) => item.id),
+  });
+  assert(
+    copySelected.json?.count === 2 && copySelected.json?.keys?.length === 2,
+    '批量复制：按 id 返回卡密',
+    `count=${copySelected.json?.count}`,
+  );
+  assert(
+    copySelected.json?.text === copySelected.json?.keys?.join('\n'),
+    '批量复制：文本一行一个卡密',
+  );
+
+  const copyFiltered = await call('POST', '/admin/cards/copy-keys', {
+    // 用列表里实际存在的额度做筛选，避免依赖前面步骤改过的固定额度
+    filter: { credits: [cards.json.items[0].credits] },
+    limit: 3,
+  });
+  assert(
+    copyFiltered.json?.count > 0 && copyFiltered.json?.keys?.length === copyFiltered.json?.count,
+    '批量复制：按筛选跨分页返回',
+    `count=${copyFiltered.json?.count}, total=${copyFiltered.json?.total}`,
+  );
+  assert(
+    copyFiltered.json?.truncated === (copyFiltered.json?.total > copyFiltered.json?.count),
+    '批量复制：截断标记与总数一致',
+    `truncated=${copyFiltered.json?.truncated}`,
+  );
+
+  const copyNone = await call('POST', '/admin/cards/copy-keys', { filter: { credits: [999999] } });
+  assert(
+    copyNone.json?.count === 0 && copyNone.json?.text === '',
+    '批量复制：无命中时返回空文本',
+  );
+
   const tiersRead = await call('GET', '/admin/credit-tiers');
   assert(tiersRead.json?.items?.length > 0, '额度档位分布可读', `${tiersRead.json?.items?.length} 个`);
   const createTier = await call('POST', '/admin/credit-tiers', { credits: 8888 }, { allowFailure: true });
